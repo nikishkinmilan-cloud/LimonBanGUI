@@ -49,10 +49,10 @@ public class FreezeListener implements Listener {
 
     @EventHandler(priority = EventPriority.HIGH)
     public void onTeleport(PlayerTeleportEvent event) {
-        if (!frozen(event.getPlayer())) return;
-        // Наши собственные телепорты (комната/возврат) идут ДО startReview/после endReview,
-        // так что на момент, когда игрок числится "в заморозке", любой teleport — это
-        // попытка сбежать (эндерперл, хорус, /spawn и т.п.)
+        Player p = event.getPlayer();
+        if (!frozen(p)) return;
+        if (reviewManager.consumeTeleportBypass(p.getUniqueId())) return; // это наш собственный корректирующий телепорт
+        // Любой другой телепорт во время заморозки — попытка сбежать (эндерперл, хорус, /spawn и т.п.)
         event.setCancelled(true);
     }
 

@@ -1,7 +1,5 @@
 package kz.dobrist.limonbangui;
 
-import net.kyori.adventure.text.Component;
-import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -21,6 +19,8 @@ public final class LimonBanGUI extends JavaPlugin {
     public void onEnable() {
         instance = this;
         saveDefaultConfig();
+        getConfig().options().copyDefaults(true); // подтягивает новые ключи из jar в уже существующий config.yml
+        saveConfig();
 
         this.banManager = new BanManager(this);
         this.antiCheatBridge = new AntiCheatBridge(this);
@@ -65,8 +65,7 @@ public final class LimonBanGUI extends JavaPlugin {
         String reason = getConfig().getString("leave-review-ban.reason", "Лив с проверки");
         int days = getConfig().getInt("leave-review-ban.days", 7);
         banManager.ban(target.getUniqueId(), target.getName(), reason, days);
-        Bukkit.broadcast(Component.text("[LimonBanGUI] " + target.getName()
-                + " покинул(а) сервер во время проверки — автобан на " + days + " дней", NamedTextColor.RED));
+        Bukkit.broadcast(BanMessages.publicBanAnnouncement(target.getName(), reason, days + " дн."));
     }
 
     public static LimonBanGUI getInstance() {

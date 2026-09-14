@@ -1,13 +1,16 @@
 package kz.dobrist.limonbangui;
 
 import net.kyori.adventure.text.Component;
-import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.Bukkit;
+import org.bukkit.Location;
 import org.bukkit.Material;
+import org.bukkit.Particle;
+import org.bukkit.Sound;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.potion.PotionEffect;
 import org.bukkit.potion.PotionEffectType;
+import org.bukkit.scheduler.BukkitTask;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -41,9 +44,10 @@ public class BanService {
     }
 
     /**
-     * Исполняет бан. Если reason.dramatic() — игрок плавно взлетает (левитация)
-     * и в течение 5 секунд по одному роняет все свои ресурсы, кик — в самом конце.
+     * Исполняет бан. Если reason.dramatic() — игрок плавно взлетает (левитация + частицы),
+     * в течение 5 секунд по одному роняет все свои ресурсы, кик — в конце, в воздухе.
      * Иначе — кикает сразу, ресурсы не трогаются.
+     * В обоих случаях в общий чат уходит публичное объявление без названия плагина.
      */
     public void executeBan(Player admin, Player targetOnline, UUID targetUuid, String targetName, BanReason reason) {
         if (reason.permanent()) {
@@ -66,15 +70,20 @@ public class BanService {
             }
         }
 
-        Bukkit.broadcast(Component.text("[LimonBanGUI] " + targetName + " забанен(а)"
-                        + (reason.permanent() ? " навсегда" : " на " + reason.days() + " дней")
-                        + " (" + reason.label() + ") — " + admin.getName(),
-                NamedTextColor.RED));
+        Bukkit.broadcast(BanMessages.publicBanAnnouncement(targetName, reason.label(), remaining));
     }
 
-    /** Плавный подъём (левитация) + поштучный дроп инвентаря, растянутые на DRAMATIC_DURATION_TICKS. */
+    /** Плавный подъём (левитация + частицы) + поштучный дроп инвентаря, кик в воздухе в конце. */
     private void playDramaticBanAndKick(Player target, Component banScreen) {
         target.addPotionEffect(new PotionEffect(PotionEffectType.LEVITATION, DRAMATIC_DURATION_TICKS + 20, 0, false, true, true));
+        target.getWorld().playSound(target.getLocation(), Sound.ENTITY_WITHER_SPAWN, 1.2f, 0.8f);
+
+        BukkitTask particleTask = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
+            if (!target.isOnline()) return;
+            Location loc = target.getLocation();
+            target.getWorld().spawnParticle(Particle.PORTAL, loc.clone().add(0, 1, 0), 25, 0.4, 0.7, 0.4, 0.05);
+            target.getWorld().spawnParticle(Particle.FLAME, loc.clone().add(0, 0.1, 0), 6, 0.3, 0.05, 0.3, 0.01);
+        }, 0L, 4L);
 
         List<ItemStack> items = new ArrayList<>();
         for (ItemStack it : target.getInventory().getContents()) {
@@ -84,26 +93,26 @@ public class BanService {
         }
         target.getInventory().clear();
 
-        if (items.isEmpty()) {
-            Bukkit.getScheduler().runTaskLater(plugin, () -> {
-                if (target.isOnline()) target.kick(banScreen);
-            }, DRAMATIC_DURATION_TICKS);
-            return;
-        }
-
-        int interval = Math.max(1, DRAMATIC_DURATION_TICKS / items.size());
-        for (int i = 0; i < items.size(); i++) {
-            ItemStack item = items.get(i);
-            long delay = (long) i * interval;
-            Bukkit.getScheduler().runTaskLater(plugin, () -> {
-                if (target.isOnline()) {
-                    target.getWorld().dropItemNaturally(target.getLocation(), item);
-                }
-            }, delay);
+        if (!items.isEmpty()) {
+            int interval = Math.max(1, DRAMATIC_DURATION_TICKS / items.size());
+            for (int i = 0; i < items.size(); i++) {
+                ItemStack item = items.get(i);
+                long delay = (long) i * interval;
+                Bukkit.getScheduler().runTaskLater(plugin, () -> {
+                    if (target.isOnline()) {
+                        target.getWorld().dropItemNaturally(target.getLocation(), item);
+                    }
+                }, delay);
+            }
         }
 
         Bukkit.getScheduler().runTaskLater(plugin, () -> {
-            if (target.isOnline()) target.kick(banScreen);
+            particleTask.cancel();
+            if (target.isOnline()) {
+                target.getWorld().spawnParticle(Particle.EXPLOSION, target.getLocation(), 1);
+                target.getWorld().playSound(target.getLocation(), Sound.ENTITY_GENERIC_EXPLODE, 1f, 1f);
+                target.kick(banScreen); // кикаем прямо в воздухе, в момент "взрыва"
+            }
         }, DRAMATIC_DURATION_TICKS);
     }
 }

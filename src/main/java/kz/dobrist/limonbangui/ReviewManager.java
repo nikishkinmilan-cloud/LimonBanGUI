@@ -32,6 +32,7 @@ public class ReviewManager {
     private final Set<UUID> inReview = new HashSet<>();
     private final Map<UUID, Location> frozenAt = new HashMap<>();
     private final Map<UUID, Long> nextMessageTick = new HashMap<>();
+    private final Set<UUID> teleportBypass = new HashSet<>();
 
     private BukkitTask tickTask;
     private long tickCounter = 0L;
@@ -97,6 +98,11 @@ public class ReviewManager {
         nextMessageTick.remove(uuid);
     }
 
+    /** true, если это НАШ собственный корректирующий телепорт — FreezeListener должен его пропустить, а не отменить. */
+    public boolean consumeTeleportBypass(UUID uuid) {
+        return teleportBypass.remove(uuid);
+    }
+
     private void tick() {
         tickCounter += POSITION_CHECK_PERIOD_TICKS;
         if (inReview.isEmpty()) return;
@@ -110,6 +116,7 @@ public class ReviewManager {
                 Location current = p.getLocation();
                 boolean sameWorld = current.getWorld() != null && current.getWorld().equals(frozen.getWorld());
                 if (!sameWorld || current.distanceSquared(frozen) > 0.02) {
+                    teleportBypass.add(uuid);
                     p.teleport(frozen);
                 }
                 p.setVelocity(new Vector(0, 0, 0));

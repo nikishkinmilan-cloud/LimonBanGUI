@@ -6,7 +6,8 @@ import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextDecoration;
 
 /**
- * Красивый экран, который видит игрок при бане/кике.
+ * Красивые тексты: экран кика/бана (видит только забаненный) и
+ * публичное объявление в чат (видят все, без упоминания названия плагина).
  */
 public class BanMessages {
 
@@ -24,5 +25,18 @@ public class BanMessages {
                 .append(Component.text(telegramContact, NamedTextColor.AQUA, TextDecoration.UNDERLINED)
                         .clickEvent(ClickEvent.openUrl(tgUrl)))
                 .append(Component.text("\n▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬", NamedTextColor.DARK_RED));
+    }
+
+    /** Публичное объявление в чат серверу — без названия плагина, видят все. */
+    public static Component publicBanAnnouncement(String playerName, String reason, String remaining) {
+        return Component.text("▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬\n", NamedTextColor.DARK_GRAY)
+                .append(Component.text("⚔ ", NamedTextColor.RED))
+                .append(Component.text(playerName, NamedTextColor.YELLOW, TextDecoration.BOLD))
+                .append(Component.text(" забанен(а)\n", NamedTextColor.RED))
+                .append(Component.text("Причина: ", NamedTextColor.GRAY))
+                .append(Component.text(reason + "\n", NamedTextColor.WHITE))
+                .append(Component.text("Срок: ", NamedTextColor.GRAY))
+                .append(Component.text(remaining, NamedTextColor.WHITE))
+                .append(Component.text("\n▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬", NamedTextColor.DARK_GRAY));
     }
 }
