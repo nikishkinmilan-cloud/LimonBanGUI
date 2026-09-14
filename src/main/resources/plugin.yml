@@ -1,0 +1,17 @@
+name: LimonBanGUI
+version: '1.0.0'
+main: kz.dobrist.limonbangui.LimonBanGUI
+api-version: '1.21'
+author: Stanislav
+description: HUD-меню бана игроков из спектатора + отображение анти-чит показателей над головами
+
+commands:
+  limonban:
+    description: Управление плагином LimonBanGUI
+    permission: limonban.admin
+    usage: /limonban reload|unban <ник>
+
+permissions:
+  limonban.admin:
+    description: Доступ к меню бана и видимость цифр анти-чита над игроками
+    default: op
