@@ -2,12 +2,15 @@ package kz.dobrist.limonbangui;
 
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.text.format.TextDecoration;
+import net.kyori.adventure.title.Title;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.entity.Player;
 import org.bukkit.scheduler.BukkitTask;
 import org.bukkit.util.Vector;
 
+import java.time.Duration;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
@@ -17,14 +20,14 @@ import java.util.UUID;
 /**
  * Держит множество игроков, которые сейчас "на проверке" (заморожены).
  * Кроме отмены событий (FreezeListener), сам следит тикером за позицией
- * игрока и силой возвращает на замороженную точку — двойная защита от
- * любых способов сдвинуться с места. Также раз в 20 сек напоминает
- * игроку про AnyDesk в чат.
+ * игрока и силой возвращает на замороженную точку. Постоянно держит на
+ * экране HUD (action bar) "ПРОВЕРКА НА ЧИТЫ" + раз в 20 сек дублирует
+ * инструкцию про AnyDesk в чат.
  */
 public class ReviewManager {
 
-    private static final long POSITION_CHECK_PERIOD_TICKS = 4L;   // 0.2 сек
-    private static final long MESSAGE_PERIOD_TICKS = 400L;        // 20 сек
+    private static final long POSITION_CHECK_PERIOD_TICKS = 4L;   // 0.2 сек — позиция + HUD
+    private static final long MESSAGE_PERIOD_TICKS = 400L;        // 20 сек — сообщение в чат
 
     private final LimonBanGUI plugin;
     private final CheckRoomManager checkRoomManager;
@@ -75,6 +78,12 @@ public class ReviewManager {
 
         target.sendMessage(reviewReminder());
 
+        target.showTitle(Title.title(
+                Component.text("🔍 ПРОВЕРКА", NamedTextColor.RED, TextDecoration.BOLD),
+                Component.text("Напишите свой AnyDesk ID в чат", NamedTextColor.YELLOW),
+                Title.Times.times(Duration.ofMillis(300), Duration.ofSeconds(3), Duration.ofMillis(500))
+        ));
+
         Bukkit.broadcast(Component.text("[LimonBanGUI] " + target.getName() + " вызван(а) на проверку — "
                 + admin.getName(), NamedTextColor.YELLOW), "limonban.admin");
     }
@@ -87,6 +96,8 @@ public class ReviewManager {
         nextMessageTick.remove(uuid);
         target.setWalkSpeed(0.2f);
         target.setFlySpeed(0.1f);
+        target.clearTitle();
+        target.sendActionBar(Component.empty());
         checkRoomManager.returnFromRoom(target);
         return true;
     }
@@ -122,12 +133,23 @@ public class ReviewManager {
                 p.setVelocity(new Vector(0, 0, 0));
             }
 
+            // постоянный HUD на экране — обновляем каждый тик проверки позиции, чтобы не пропадал
+            p.sendActionBar(actionBarHud());
+
             Long next = nextMessageTick.get(uuid);
             if (next != null && tickCounter >= next) {
                 p.sendMessage(reviewReminder());
                 nextMessageTick.put(uuid, tickCounter + MESSAGE_PERIOD_TICKS);
             }
         }
+    }
+
+    private Component actionBarHud() {
+        return Component.text("🔍 ПРОВЕРКА НА ЧИТЫ", NamedTextColor.RED, TextDecoration.BOLD)
+                .append(Component.text("  |  ", NamedTextColor.DARK_GRAY))
+                .append(Component.text("Напишите AnyDesk ID в чат", NamedTextColor.YELLOW))
+                .append(Component.text("  |  ", NamedTextColor.DARK_GRAY))
+                .append(Component.text("Лив = бан", NamedTextColor.DARK_RED));
     }
 
     private Component reviewReminder() {
