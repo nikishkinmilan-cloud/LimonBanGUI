@@ -1,16 +1,16 @@
 package kz.dobrist.limonbangui;
 
-import net.kyori.adventure.text.Component;
-import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerLoginEvent;
 
 public class LoginListener implements Listener {
 
+    private final LimonBanGUI plugin;
     private final BanManager banManager;
 
-    public LoginListener(BanManager banManager) {
+    public LoginListener(LimonBanGUI plugin, BanManager banManager) {
+        this.plugin = plugin;
         this.banManager = banManager;
     }
 
@@ -19,10 +19,8 @@ public class LoginListener implements Listener {
         BanManager.BanEntry ban = banManager.getActiveBan(event.getPlayer().getUniqueId());
         if (ban == null) return;
 
-        Component kickMessage = Component.text("Вы забанены.\n", NamedTextColor.RED)
-                .append(Component.text("Причина: " + ban.reason() + "\n", NamedTextColor.GRAY))
-                .append(Component.text("Осталось: " + banManager.formatRemaining(ban), NamedTextColor.GRAY));
-
-        event.disallow(PlayerLoginEvent.Result.KICK_BANNED, kickMessage);
+        String telegram = plugin.getConfig().getString("telegram-contact", "@MIlan4ck3456");
+        event.disallow(PlayerLoginEvent.Result.KICK_BANNED,
+                BanMessages.banScreen(ban.reason(), banManager.formatRemaining(ban), telegram));
     }
 }

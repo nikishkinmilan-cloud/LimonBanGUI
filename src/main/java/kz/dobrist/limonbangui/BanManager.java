@@ -5,21 +5,20 @@ import org.bukkit.configuration.file.YamlConfiguration;
 import java.io.File;
 import java.io.IOException;
 import java.time.Instant;
-import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 import java.util.logging.Level;
 
 /**
- * Свой лёгкий temp-ban на случай, если на сервере нет плагина
- * с поддержкой временных банов (AdvancedBan / LibertyBans и т.п.).
- * Хранит записи в bans.yml: uuid -> {name, reason, expiresAt}.
+ * Свой лёгкий temp/perm-ban на случай, если на сервере нет плагина
+ * с поддержкой временных банов. Хранит записи в bans.yml.
  */
 public class BanManager {
 
-    public record BanEntry(String name, String reason, long expiresAtEpochMillis) {
+    public record BanEntry(String name, String reason, long expiresAtEpochMillis, boolean permanent) {
         public boolean isExpired() {
+            if (permanent) return false;
             return Instant.now().toEpochMilli() >= expiresAtEpochMillis;
         }
     }
@@ -36,7 +35,12 @@ public class BanManager {
 
     public void ban(UUID uuid, String name, String reason, int days) {
         long expiresAt = Instant.now().plusSeconds(days * 24L * 3600L).toEpochMilli();
-        bans.put(uuid, new BanEntry(name, reason, expiresAt));
+        bans.put(uuid, new BanEntry(name, reason, expiresAt, false));
+        save();
+    }
+
+    public void banPermanent(UUID uuid, String name, String reason) {
+        bans.put(uuid, new BanEntry(name, reason, -1, true));
         save();
     }
 
@@ -58,14 +62,11 @@ public class BanManager {
     }
 
     public String formatRemaining(BanEntry entry) {
+        if (entry.permanent()) return "навсегда";
         long ms = entry.expiresAtEpochMillis() - Instant.now().toEpochMilli();
         long days = ms / (1000 * 60 * 60 * 24);
         long hours = (ms / (1000 * 60 * 60)) % 24;
         return days + " дн. " + hours + " ч.";
-    }
-
-    public String formatExpiry(BanEntry entry) {
-        return DateTimeFormatter.ISO_INSTANT.format(Instant.ofEpochMilli(entry.expiresAtEpochMillis()));
     }
 
     private void load() {
@@ -76,8 +77,9 @@ public class BanManager {
                 UUID uuid = UUID.fromString(key);
                 String name = yaml.getString(key + ".name", "unknown");
                 String reason = yaml.getString(key + ".reason", "");
+                boolean permanent = yaml.getBoolean(key + ".permanent", false);
                 long expiresAt = yaml.getLong(key + ".expiresAt");
-                bans.put(uuid, new BanEntry(name, reason, expiresAt));
+                bans.put(uuid, new BanEntry(name, reason, expiresAt, permanent));
             } catch (IllegalArgumentException ex) {
                 plugin.getLogger().warning("Пропущена некорректная запись бана: " + key);
             }
@@ -90,6 +92,7 @@ public class BanManager {
             String key = e.getKey().toString();
             yaml.set(key + ".name", e.getValue().name());
             yaml.set(key + ".reason", e.getValue().reason());
+            yaml.set(key + ".permanent", e.getValue().permanent());
             yaml.set(key + ".expiresAt", e.getValue().expiresAtEpochMillis());
         }
         try {

@@ -4,15 +4,18 @@ import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.Bukkit;
 import org.bukkit.GameMode;
+import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.inventory.InventoryClickEvent;
+import org.bukkit.event.player.PlayerAnimationEvent;
 import org.bukkit.event.player.PlayerInteractEntityEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.persistence.PersistentDataType;
+import org.bukkit.util.RayTraceResult;
 
 import java.util.UUID;
 
@@ -20,13 +23,15 @@ public class BanMenuListener implements Listener {
 
     private final LimonBanGUI plugin;
     private final BanManager banManager;
+    private final BanService banService;
 
-    public BanMenuListener(LimonBanGUI plugin, BanManager banManager) {
+    public BanMenuListener(LimonBanGUI plugin, BanManager banManager, BanService banService) {
         this.plugin = plugin;
         this.banManager = banManager;
+        this.banService = banService;
     }
 
-    /** Триггер: в spectator, shift + ПКМ по игроку, есть право. */
+    /** shift + ПКМ по игроку в spectator: открыть полное меню. */
     @EventHandler
     public void onInteract(PlayerInteractEntityEvent event) {
         Player viewer = event.getPlayer();
@@ -36,11 +41,35 @@ public class BanMenuListener implements Listener {
         if (!viewer.hasPermission("limonban.admin")) return;
 
         event.setCancelled(true);
-        double trust = plugin.getAntiCheatBridge().getViolationLevel(target);
-        viewer.openInventory(Menus.buildMain(target, trust));
+        openMain(viewer, target);
     }
 
-    // на всякий случай — блокируем урон от спектатора (должно и так игнориться ванилой)
+    /** shift + ЛКМ по игроку в spectator: сразу вызвать на проверку, без меню. */
+    @EventHandler
+    public void onSwing(PlayerAnimationEvent event) {
+        Player viewer = event.getPlayer();
+        if (viewer.getGameMode() != GameMode.SPECTATOR) return;
+        if (!viewer.isSneaking()) return;
+        if (!viewer.hasPermission("limonban.admin")) return;
+
+        double range = plugin.getConfig().getDouble("quick-target-range", 5.0);
+        RayTraceResult trace = viewer.getWorld().rayTraceEntities(
+                viewer.getEyeLocation(), viewer.getEyeLocation().getDirection(), range,
+                entity -> entity instanceof Player p && !p.equals(viewer));
+        if (trace == null) return;
+        Entity hit = trace.getHitEntity();
+        if (!(hit instanceof Player target)) return;
+
+        plugin.getReviewManager().startReview(viewer, target);
+    }
+
+    private void openMain(Player viewer, Player target) {
+        double trust = plugin.getAntiCheatBridge().getViolationLevel(target);
+        boolean inReview = plugin.getReviewManager().isInReview(target.getUniqueId());
+        viewer.openInventory(Menus.buildMain(target, trust, inReview));
+    }
+
+    // подстраховка: спектатор физически не должен наносить урон, но на всякий случай
     @EventHandler
     public void onDamage(EntityDamageByEntityEvent event) {
         if (event.getDamager() instanceof Player p && p.getGameMode() == GameMode.SPECTATOR) {
@@ -63,80 +92,72 @@ public class BanMenuListener implements Listener {
 
         switch (holder.getType()) {
             case MAIN -> handleMainClick(viewer, event.getSlot(), targetUuid, targetName, targetOnline);
-            case ANTICHEAT_SUB -> handleAnticheatClick(viewer, event.getSlot(), clicked, targetUuid, targetName, targetOnline);
+            case BAN_REASONS -> handleReasonClick(viewer, event.getSlot(), clicked, targetUuid, targetName, targetOnline);
         }
     }
 
     private void handleMainClick(Player viewer, int slot, UUID targetUuid, String targetName, Player targetOnline) {
         if (slot == Menus.SLOT_CLOSE) {
             viewer.closeInventory();
-        } else if (slot == Menus.SLOT_REVIEW) {
-            viewer.closeInventory();
-            callForReview(viewer, targetOnline, targetName);
-        } else if (slot == Menus.SLOT_ROOM) {
-            viewer.closeInventory();
-            sendToCheckRoom(viewer, targetOnline, targetName);
-        } else if (slot == Menus.SLOT_ANTICHEAT) {
+            return;
+        }
+
+        if (slot == Menus.SLOT_REVIEW) {
             if (targetOnline == null) {
                 viewer.sendMessage(Component.text("Игрок вышел с сервера.", NamedTextColor.RED));
                 viewer.closeInventory();
                 return;
             }
-            viewer.openInventory(Menus.buildAnticheatSub(targetOnline));
+            plugin.getReviewManager().startReview(viewer, targetOnline);
+            viewer.closeInventory();
+            return;
+        }
+
+        if (slot == Menus.SLOT_END_REVIEW) {
+            if (targetOnline == null) {
+                viewer.sendMessage(Component.text("Игрок вышел с сервера.", NamedTextColor.RED));
+                viewer.closeInventory();
+                return;
+            }
+            boolean ok = plugin.getReviewManager().endReview(targetOnline);
+            viewer.sendMessage(ok
+                    ? Component.text(targetName + " снят(а) с проверки.", NamedTextColor.GREEN)
+                    : Component.text(targetName + " не был(а) на проверке.", NamedTextColor.GRAY));
+            viewer.closeInventory();
+            return;
+        }
+
+        if (slot == Menus.SLOT_BAN) {
+            if (targetOnline == null) {
+                viewer.sendMessage(Component.text("Игрок вышел с сервера.", NamedTextColor.RED));
+                viewer.closeInventory();
+                return;
+            }
+            viewer.openInventory(Menus.buildReasonsMenu(targetOnline, banService.loadReasons()));
         }
     }
 
-    private void handleAnticheatClick(Player viewer, int slot, ItemStack clicked, UUID targetUuid, String targetName, Player targetOnline) {
-        if (slot == 22) { // Назад
+    private void handleReasonClick(Player viewer, int slot, ItemStack clicked, UUID targetUuid, String targetName, Player targetOnline) {
+        if (slot == 31) { // Назад
             if (targetOnline == null) {
                 viewer.closeInventory();
                 return;
             }
-            double trust = plugin.getAntiCheatBridge().getViolationLevel(targetOnline);
-            viewer.openInventory(Menus.buildMain(targetOnline, trust));
+            openMain(viewer, targetOnline);
             return;
         }
 
         ItemMeta meta = clicked.getItemMeta();
         if (meta == null) return;
-        String category = meta.getPersistentDataContainer().get(BanKeys.CATEGORY_KEY, PersistentDataType.STRING);
-        if (category == null) return;
+        String key = meta.getPersistentDataContainer().get(BanKeys.CATEGORY_KEY, PersistentDataType.STRING);
+        if (key == null) return;
 
-        int days = plugin.getConfig().getInt("ban-days", 25);
-        String reason = "Читы (п." + category + ")";
-        banManager.ban(targetUuid, targetName, reason, days);
+        BanReason reason = banService.loadReasons().stream()
+                .filter(r -> r.key().equals(key))
+                .findFirst().orElse(null);
+        if (reason == null) return;
 
-        if (targetOnline != null) {
-            targetOnline.kick(Component.text("Вы забанены.\nПричина: " + reason + "\nСрок: " + days + " дней", NamedTextColor.RED));
-        }
-
-        Bukkit.broadcast(Component.text("[LimonBanGUI] " + targetName + " забанен на " + days + " дней (" + reason + ") — "
-                + viewer.getName(), NamedTextColor.RED));
-
+        banService.executeBan(viewer, targetOnline, targetUuid, targetName, reason);
         viewer.closeInventory();
-    }
-
-    private void sendToCheckRoom(Player viewer, Player targetOnline, String targetName) {
-        if (targetOnline == null) {
-            viewer.sendMessage(Component.text("Игрок вышел с сервера.", NamedTextColor.RED));
-            return;
-        }
-        boolean ok = plugin.getCheckRoomManager().sendToRoom(targetOnline);
-        if (!ok) {
-            viewer.sendMessage(Component.text("Комната проверки не настроена. Встань в нужном месте и выполни /limonban room set", NamedTextColor.RED));
-            return;
-        }
-        Bukkit.broadcast(Component.text("[LimonBanGUI] " + targetName + " отправлен(а) в комнату проверки — "
-                + viewer.getName(), NamedTextColor.LIGHT_PURPLE), "limonban.admin");
-    }
-
-    private void callForReview(Player viewer, Player targetOnline, String targetName) {
-        // Если у вас уже есть /acprov review — можно просто продублировать его вызов:
-        if (targetOnline != null) {
-            Bukkit.dispatchCommand(Bukkit.getConsoleSender(), "acprov review " + targetOnline.getName());
-        }
-        Bukkit.broadcast(Component.text("[LimonBanGUI] " + targetName + " отправлен(а) на проверку анти-читом ("
-                + viewer.getName() + ")", NamedTextColor.YELLOW),
-                "limonban.admin");
     }
 }

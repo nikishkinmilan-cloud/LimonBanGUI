@@ -1,5 +1,9 @@
 package kz.dobrist.limonbangui;
 
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
+import org.bukkit.Bukkit;
+import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 
 public final class LimonBanGUI extends JavaPlugin {
@@ -10,6 +14,8 @@ public final class LimonBanGUI extends JavaPlugin {
     private TrustDisplayManager trustDisplayManager;
     private AntiCheatBridge antiCheatBridge;
     private CheckRoomManager checkRoomManager;
+    private ReviewManager reviewManager;
+    private BanService banService;
 
     @Override
     public void onEnable() {
@@ -20,9 +26,12 @@ public final class LimonBanGUI extends JavaPlugin {
         this.antiCheatBridge = new AntiCheatBridge(this);
         this.trustDisplayManager = new TrustDisplayManager(this, antiCheatBridge);
         this.checkRoomManager = new CheckRoomManager(this);
+        this.reviewManager = new ReviewManager(this, checkRoomManager);
+        this.banService = new BanService(this, banManager);
 
-        getServer().getPluginManager().registerEvents(new LoginListener(banManager), this);
-        getServer().getPluginManager().registerEvents(new BanMenuListener(this, banManager), this);
+        getServer().getPluginManager().registerEvents(new LoginListener(this, banManager), this);
+        getServer().getPluginManager().registerEvents(new BanMenuListener(this, banManager, banService), this);
+        getServer().getPluginManager().registerEvents(new FreezeListener(reviewManager), this);
         getServer().getPluginManager().registerEvents(trustDisplayManager, this);
 
         LimonBanCommand command = new LimonBanCommand(this, banManager, checkRoomManager);
@@ -47,6 +56,15 @@ public final class LimonBanGUI extends JavaPlugin {
         }
     }
 
+    /** Игрок вышел прямо во время проверки — автоматический бан. */
+    public void handleLeaveDuringReview(Player target) {
+        String reason = getConfig().getString("leave-review-ban.reason", "Лив с проверки");
+        int days = getConfig().getInt("leave-review-ban.days", 7);
+        banManager.ban(target.getUniqueId(), target.getName(), reason, days);
+        Bukkit.broadcast(Component.text("[LimonBanGUI] " + target.getName()
+                + " покинул(а) сервер во время проверки — автобан на " + days + " дней", NamedTextColor.RED));
+    }
+
     public static LimonBanGUI getInstance() {
         return instance;
     }
@@ -65,5 +83,13 @@ public final class LimonBanGUI extends JavaPlugin {
 
     public CheckRoomManager getCheckRoomManager() {
         return checkRoomManager;
+    }
+
+    public ReviewManager getReviewManager() {
+        return reviewManager;
+    }
+
+    public BanService getBanService() {
+        return banService;
     }
 }

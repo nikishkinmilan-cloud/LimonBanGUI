@@ -7,7 +7,7 @@ import java.util.UUID;
 
 public class BanMenuHolder implements InventoryHolder {
 
-    public enum MenuType { MAIN, ANTICHEAT_SUB }
+    public enum MenuType { MAIN, BAN_REASONS }
 
     private final MenuType type;
     private final UUID targetUuid;
