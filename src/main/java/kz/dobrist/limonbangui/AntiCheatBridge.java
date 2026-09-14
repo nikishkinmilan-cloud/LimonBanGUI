@@ -8,17 +8,9 @@ import java.lang.reflect.Method;
 
 /**
  * Достаёт "уровень подозрения" (0.00 = чист, выше = больше нарушений)
- * из плагина LimonAntiCheat через reflection, чтобы не тянуть его как
- * compile-зависимость.
- *
- * ЧТО НУЖНО СДЕЛАТЬ В LimonAntiCheat (один раз):
- * добавить в его главный класс публичный метод, например:
- *
- *   public double getViolationLevel(UUID playerUuid) { ... }
- *
- * и прописать ниже реальное имя главного класса/метода вместо заглушки.
- * Пока метод не найден — используется безопасная заглушка (всегда 0.00),
- * плагин не упадёт, просто цифры не будут "живыми".
+ * из плагина LimonAntiCheat через reflection (чтобы не тянуть его как
+ * compile-зависимость — плагины остаются независимыми и работают
+ * по отдельности, просто цифры "оживают", когда оба стоят вместе).
  */
 public class AntiCheatBridge {
 
@@ -27,10 +19,9 @@ public class AntiCheatBridge {
     private Method violationMethod;
     private boolean resolved = false;
 
-    // TODO: поправь под реальные имена в LimonAntiCheat
     private static final String AC_PLUGIN_NAME = "LimonAntiCheat";
-    private static final String AC_MAIN_CLASS = "kz.dobrist.limonanticheat.LimonAntiCheat"; // TODO
-    private static final String AC_METHOD_NAME = "getViolationLevel"; // TODO, сигнатура: double getViolationLevel(Player)
+    private static final String AC_MAIN_CLASS = "kz.dobrist.limonanticheat.LimonAntiCheat";
+    private static final String AC_METHOD_NAME = "getViolationLevel"; // double getViolationLevel(Player)
 
     public AntiCheatBridge(LimonBanGUI plugin) {
         this.plugin = plugin;
@@ -49,7 +40,7 @@ public class AntiCheatBridge {
             violationMethod = clazz.getMethod(AC_METHOD_NAME, Player.class);
         } catch (ReflectiveOperationException ex) {
             plugin.getLogger().warning("Не удалось привязаться к " + AC_MAIN_CLASS + "#" + AC_METHOD_NAME
-                    + " — проверь TODO в AntiCheatBridge.java. Причина: " + ex);
+                    + ". Причина: " + ex);
         }
     }
 
