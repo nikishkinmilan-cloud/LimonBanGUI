@@ -2,6 +2,7 @@ package kz.dobrist.limonbangui;
 
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.text.format.TextColor;
 import net.kyori.adventure.text.format.TextDecoration;
 import net.kyori.adventure.title.Title;
 import org.bukkit.Bukkit;
@@ -79,8 +80,8 @@ public class ReviewManager {
         target.sendMessage(reviewReminder());
 
         target.showTitle(Title.title(
-                Component.text("🔍 ПРОВЕРКА", NamedTextColor.RED, TextDecoration.BOLD),
-                Component.text("Напишите свой AnyDesk ID в чат", NamedTextColor.YELLOW),
+                gradientText("🔍 ПРОВЕРКА НА ЧИТЫ", 0xFF3B3B, 0xFFD166, true),
+                Component.text("✎ Напишите свой AnyDesk ID в чат", NamedTextColor.AQUA),
                 Title.Times.times(Duration.ofMillis(300), Duration.ofSeconds(3), Duration.ofMillis(500))
         ));
 
@@ -144,12 +145,31 @@ public class ReviewManager {
         }
     }
 
+    private Component gradientText(String text, int fromRgb, int toRgb, boolean bold) {
+        Component result = Component.empty();
+        int len = text.length();
+        int fr = (fromRgb >> 16) & 0xFF, fg = (fromRgb >> 8) & 0xFF, fb = fromRgb & 0xFF;
+        int tr = (toRgb >> 16) & 0xFF, tg = (toRgb >> 8) & 0xFF, tb = toRgb & 0xFF;
+        for (int i = 0; i < len; i++) {
+            float ratio = len <= 1 ? 0 : (float) i / (len - 1);
+            int r = (int) (fr + ratio * (tr - fr));
+            int g = (int) (fg + ratio * (tg - fg));
+            int b = (int) (fb + ratio * (tb - fb));
+            Component ch = Component.text(String.valueOf(text.charAt(i)), TextColor.color(r, g, b));
+            if (bold) ch = ch.decoration(TextDecoration.BOLD, true);
+            result = result.append(ch);
+        }
+        return result;
+    }
+
     private Component actionBarHud() {
-        return Component.text("🔍 ПРОВЕРКА НА ЧИТЫ", NamedTextColor.RED, TextDecoration.BOLD)
-                .append(Component.text("  |  ", NamedTextColor.DARK_GRAY))
-                .append(Component.text("Напишите AnyDesk ID в чат", NamedTextColor.YELLOW))
-                .append(Component.text("  |  ", NamedTextColor.DARK_GRAY))
-                .append(Component.text("Лив = бан", NamedTextColor.DARK_RED));
+        return Component.text("▌▌▌ ", NamedTextColor.DARK_RED)
+                .append(gradientText("ПРОВЕРКА НА ЧИТЫ", 0xFF3B3B, 0xFFD166, true))
+                .append(Component.text(" ▐▐▐  ", NamedTextColor.DARK_RED))
+                .append(Component.text("✎ ", NamedTextColor.AQUA))
+                .append(Component.text("AnyDesk в чат", NamedTextColor.AQUA, TextDecoration.BOLD))
+                .append(Component.text("   ⚠ ", NamedTextColor.GOLD))
+                .append(Component.text("Лив = бан", NamedTextColor.RED, TextDecoration.BOLD));
     }
 
     private Component reviewReminder() {

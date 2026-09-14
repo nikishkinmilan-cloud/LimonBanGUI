@@ -100,7 +100,8 @@ public class BanService {
                 long delay = (long) i * interval;
                 Bukkit.getScheduler().runTaskLater(plugin, () -> {
                     if (target.isOnline()) {
-                        target.getWorld().dropItemNaturally(target.getLocation(), item);
+                        org.bukkit.entity.Item dropped = target.getWorld().dropItemNaturally(target.getLocation(), item);
+                        dropped.setPickupDelay(200); // 10 сек — банимый физически не успеет это подобрать
                     }
                 }, delay);
             }
