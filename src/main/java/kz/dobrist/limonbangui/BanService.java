@@ -3,10 +3,11 @@ package kz.dobrist.limonbangui;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.Bukkit;
-import org.bukkit.Location;
+import org.bukkit.Material;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
-import org.bukkit.util.Vector;
+import org.bukkit.potion.PotionEffect;
+import org.bukkit.potion.PotionEffectType;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -14,6 +15,9 @@ import java.util.Map;
 import java.util.UUID;
 
 public class BanService {
+
+    // Длительность "красивого" бана-античита: плавный подъём + поштучный дроп ресурсов
+    private static final int DRAMATIC_DURATION_TICKS = 100; // 5 секунд
 
     private final LimonBanGUI plugin;
     private final BanManager banManager;
@@ -37,8 +41,8 @@ public class BanService {
     }
 
     /**
-     * Исполняет бан. Если reason.dramatic() — сначала подкидывает игрока на 5 блоков
-     * и роняет все его ресурсы на месте, и только потом (с небольшой задержкой) кикает.
+     * Исполняет бан. Если reason.dramatic() — игрок плавно взлетает (левитация)
+     * и в течение 5 секунд по одному роняет все свои ресурсы, кик — в самом конце.
      * Иначе — кикает сразу, ресурсы не трогаются.
      */
     public void executeBan(Player admin, Player targetOnline, UUID targetUuid, String targetName, BanReason reason) {
@@ -54,11 +58,9 @@ public class BanService {
 
         if (targetOnline != null) {
             plugin.getReviewManager().endReview(targetOnline); // на случай если банили прямо с проверки
+
             if (reason.dramatic()) {
-                launchAndDropLoot(targetOnline);
-                Bukkit.getScheduler().runTaskLater(plugin, () -> {
-                    if (targetOnline.isOnline()) targetOnline.kick(banScreen);
-                }, 15L);
+                playDramaticBanAndKick(targetOnline, banScreen);
             } else {
                 targetOnline.kick(banScreen);
             }
@@ -70,16 +72,38 @@ public class BanService {
                 NamedTextColor.RED));
     }
 
-    private void launchAndDropLoot(Player target) {
-        target.setVelocity(new Vector(0, 1.6, 0)); // ~5 блоков вверх
+    /** Плавный подъём (левитация) + поштучный дроп инвентаря, растянутые на DRAMATIC_DURATION_TICKS. */
+    private void playDramaticBanAndKick(Player target, Component banScreen) {
+        target.addPotionEffect(new PotionEffect(PotionEffectType.LEVITATION, DRAMATIC_DURATION_TICKS + 20, 0, false, true, true));
 
-        Location dropLoc = target.getLocation();
-        ItemStack[] contents = target.getInventory().getContents();
-        for (ItemStack item : contents) {
-            if (item != null && item.getType() != org.bukkit.Material.AIR) {
-                dropLoc.getWorld().dropItemNaturally(dropLoc, item);
+        List<ItemStack> items = new ArrayList<>();
+        for (ItemStack it : target.getInventory().getContents()) {
+            if (it != null && it.getType() != Material.AIR) {
+                items.add(it.clone());
             }
         }
         target.getInventory().clear();
+
+        if (items.isEmpty()) {
+            Bukkit.getScheduler().runTaskLater(plugin, () -> {
+                if (target.isOnline()) target.kick(banScreen);
+            }, DRAMATIC_DURATION_TICKS);
+            return;
+        }
+
+        int interval = Math.max(1, DRAMATIC_DURATION_TICKS / items.size());
+        for (int i = 0; i < items.size(); i++) {
+            ItemStack item = items.get(i);
+            long delay = (long) i * interval;
+            Bukkit.getScheduler().runTaskLater(plugin, () -> {
+                if (target.isOnline()) {
+                    target.getWorld().dropItemNaturally(target.getLocation(), item);
+                }
+            }, delay);
+        }
+
+        Bukkit.getScheduler().runTaskLater(plugin, () -> {
+            if (target.isOnline()) target.kick(banScreen);
+        }, DRAMATIC_DURATION_TICKS);
     }
 }

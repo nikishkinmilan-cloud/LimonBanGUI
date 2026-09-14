@@ -39,6 +39,7 @@ public final class LimonBanGUI extends JavaPlugin {
         getCommand("limonban").setTabCompleter(command);
 
         trustDisplayManager.start();
+        reviewManager.start();
 
         getLogger().info("LimonBanGUI включен. Право доступа: limonban.admin");
     }
@@ -53,6 +54,9 @@ public final class LimonBanGUI extends JavaPlugin {
         }
         if (checkRoomManager != null) {
             checkRoomManager.save();
+        }
+        if (reviewManager != null) {
+            reviewManager.stop();
         }
     }
 
