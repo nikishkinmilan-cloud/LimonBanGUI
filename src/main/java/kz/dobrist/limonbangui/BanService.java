@@ -14,6 +14,7 @@ import org.bukkit.entity.Item;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.FireworkMeta;
+import org.bukkit.scheduler.BukkitTask;
 import org.bukkit.util.Vector;
 
 import java.util.ArrayList;
@@ -26,8 +27,9 @@ import java.util.UUID;
 public class BanService {
 
     // Параметры "красивого" бана-античита
-    private static final double RISE_HEIGHT_BLOCKS = 8.0;   // на сколько блоков поднимаем
+    private static final double RISE_HEIGHT_BLOCKS = 8.0;   // на сколько блоков поднимаем (если не упрётся в потолок)
     private static final int RISE_DURATION_TICKS = 100;      // за сколько тиков (5 сек)
+    private static final double HEAD_CLEARANCE = 1.9;         // насколько выше головы проверяем потолок
 
     private final LimonBanGUI plugin;
     private final BanManager banManager;
@@ -58,17 +60,24 @@ public class BanService {
     }
 
     /**
-     * Исполняет бан. Если reason.dramatic() — игрок спокойно (без левитации, ручным
-     * телепортом) поднимается на 8 блоков, полностью заморожен на время подъёма,
-     * на пике взрывается фейерверк и все его ресурсы разлетаются в стороны в радиусе
-     * ~5 блоков — и только тогда кик. Иначе — кикает сразу, ресурсы не трогаются.
-     * В обоих случаях в общий чат уходит публичное объявление без названия плагина.
+     * Исполняет бан. Банит и по UUID, и по IP игрока (если он сейчас онлайн и его
+     * адрес доступен) — это ловит альты с того же устройства/сети.
+     * Если reason.dramatic() — игрок спокойно (без левитации, ручным телепортом)
+     * поднимается на 8 блоков ИЛИ до потолка, если тот ближе (не пролетает сквозь
+     * блоки), полностью заморожен на время подъёма, на пике взрывается фейерверк
+     * и все его ресурсы разлетаются в стороны — и только тогда кик.
+     * Иначе — кикает сразу, ресурсы не трогаются.
      */
     public void executeBan(Player admin, Player targetOnline, UUID targetUuid, String targetName, BanReason reason) {
+        String ip = (targetOnline != null && targetOnline.getAddress() != null)
+                ? targetOnline.getAddress().getAddress().getHostAddress() : null;
+
         if (reason.permanent()) {
             banManager.banPermanent(targetUuid, targetName, reason.label());
+            if (ip != null) banManager.banIpPermanent(ip, targetName, reason.label());
         } else {
             banManager.ban(targetUuid, targetName, reason.label(), reason.days());
+            if (ip != null) banManager.banIp(ip, targetName, reason.label(), reason.days());
         }
 
         String telegram = plugin.getConfig().getString("telegram-contact", "@MIlan4ck3456");
@@ -107,32 +116,46 @@ public class BanService {
         target.getWorld().playSound(start, Sound.ENTITY_WITHER_SPAWN, 1.2f, 0.8f);
 
         int[] tickCounter = {0};
-        org.bukkit.scheduler.BukkitTask riseTask = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
+        BukkitTask[] riseTaskRef = new BukkitTask[1];
+
+        riseTaskRef[0] = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
             tickCounter[0]++;
-            if (!target.isOnline()) return;
 
-            Location next = start.clone().add(0, perTick * tickCounter[0], 0);
-            next.setYaw(target.getLocation().getYaw());
-            next.setPitch(target.getLocation().getPitch());
-            target.teleport(next);
+            if (!target.isOnline()) {
+                riseTaskRef[0].cancel();
+                animationLocked.remove(uuid);
+                return;
+            }
 
-            target.getWorld().spawnParticle(Particle.PORTAL, next.clone().add(0, 1, 0), 20, 0.4, 0.6, 0.4, 0.05);
-            target.getWorld().spawnParticle(Particle.FLAME, next.clone().add(0, 0.1, 0), 5, 0.3, 0.05, 0.3, 0.01);
+            Location candidate = start.clone().add(0, perTick * tickCounter[0], 0);
+            Location currentFacing = target.getLocation();
+            candidate.setYaw(currentFacing.getYaw());
+            candidate.setPitch(currentFacing.getPitch());
+
+            // не пролетаем сквозь потолок пещеры/постройки — смотрим блок чуть выше головы в точке назначения
+            boolean ceilingHit = candidate.clone().add(0, HEAD_CLEARANCE, 0).getBlock().getType().isSolid();
+            boolean durationDone = tickCounter[0] >= RISE_DURATION_TICKS;
+
+            if (ceilingHit || durationDone) {
+                riseTaskRef[0].cancel();
+                animationLocked.remove(uuid);
+                finishWithExplosion(target, items, banScreen);
+                return;
+            }
+
+            target.teleport(candidate);
+            target.getWorld().spawnParticle(Particle.PORTAL, candidate.clone().add(0, 1, 0), 20, 0.4, 0.6, 0.4, 0.05);
+            target.getWorld().spawnParticle(Particle.FLAME, candidate.clone().add(0, 0.1, 0), 5, 0.3, 0.05, 0.3, 0.01);
         }, 0L, 1L);
+    }
 
-        Bukkit.getScheduler().runTaskLater(plugin, () -> {
-            riseTask.cancel();
-            animationLocked.remove(uuid);
+    private void finishWithExplosion(Player target, List<ItemStack> items, Component banScreen) {
+        Location peak = target.getLocation();
+        explodeFirework(peak);
+        scatterItems(peak, items);
 
-            if (!target.isOnline()) return;
-
-            Location peak = target.getLocation();
-            explodeFirework(peak);
-            scatterItems(peak, items);
-
-            target.getWorld().playSound(peak, Sound.ENTITY_GENERIC_EXPLODE, 1f, 1f);
-            target.kick(banScreen); // кикаем прямо в момент взрыва, в воздухе
-        }, RISE_DURATION_TICKS);
+        target.getWorld().playSound(peak, Sound.ENTITY_GENERIC_EXPLODE, 1f, 1f);
+        target.kick(banScreen); // кикаем прямо в момент взрыва
     }
 
     private void explodeFirework(Location loc) {

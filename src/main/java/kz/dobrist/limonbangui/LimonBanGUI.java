@@ -72,11 +72,14 @@ public final class LimonBanGUI extends JavaPlugin {
         }
     }
 
-    /** Игрок вышел прямо во время проверки — автоматический бан. */
+    /** Игрок вышел прямо во время проверки — автоматический бан (по UUID и по IP). */
     public void handleLeaveDuringReview(Player target) {
         String reason = getConfig().getString("leave-review-ban.reason", "Лив с проверки");
         int days = getConfig().getInt("leave-review-ban.days", 7);
         banManager.ban(target.getUniqueId(), target.getName(), reason, days);
+        if (target.getAddress() != null) {
+            banManager.banIp(target.getAddress().getAddress().getHostAddress(), target.getName(), reason, days);
+        }
         Bukkit.broadcast(BanMessages.publicBanAnnouncement(target.getName(), reason, days + " дн."));
     }
 

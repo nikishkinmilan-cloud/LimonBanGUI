@@ -12,7 +12,7 @@ import java.util.List;
 
 public class LimonBanCommand implements CommandExecutor, TabCompleter {
 
-    private static final String USAGE = "Использование: /limonban reload | unban <ник> | mute | unmute <ник> | room set | room tp <ник> | room return <ник>";
+    private static final String USAGE = "Использование: /limonban reload | unban <ник> | unbanip <ip> | mute | unmute <ник> | room set | room tp <ник> | room return <ник>";
 
     private final LimonBanGUI plugin;
     private final BanManager banManager;
@@ -46,6 +46,14 @@ public class LimonBanCommand implements CommandExecutor, TabCompleter {
                 OfflinePlayer target = Bukkit.getOfflinePlayer(args[1]);
                 banManager.unban(target.getUniqueId());
                 sender.sendMessage("Снят бан с " + args[1] + " (если он был).");
+            }
+            case "unbanip" -> {
+                if (args.length < 2) {
+                    sender.sendMessage("Использование: /limonban unbanip <ip>");
+                    return true;
+                }
+                banManager.unbanIp(args[1]);
+                sender.sendMessage("Снят IP-бан с " + args[1] + " (если он был).");
             }
             case "mute" -> {
                 if (!(sender instanceof Player p)) {
@@ -123,7 +131,7 @@ public class LimonBanCommand implements CommandExecutor, TabCompleter {
 
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
-        if (args.length == 1) return List.of("reload", "unban", "mute", "unmute", "room");
+        if (args.length == 1) return List.of("reload", "unban", "unbanip", "mute", "unmute", "room");
         if (args.length == 2 && (args[0].equalsIgnoreCase("unban") || args[0].equalsIgnoreCase("unmute"))) {
             return Bukkit.getOnlinePlayers().stream().map(Player::getName).toList();
         }
