@@ -2,32 +2,46 @@ package kz.dobrist.limonbangui;
 
 import net.kyori.adventure.text.Component;
 import org.bukkit.Bukkit;
+import org.bukkit.Color;
+import org.bukkit.FireworkEffect;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.Particle;
 import org.bukkit.Sound;
+import org.bukkit.entity.EntityType;
+import org.bukkit.entity.Firework;
+import org.bukkit.entity.Item;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
-import org.bukkit.potion.PotionEffect;
-import org.bukkit.potion.PotionEffectType;
-import org.bukkit.scheduler.BukkitTask;
+import org.bukkit.inventory.meta.FireworkMeta;
+import org.bukkit.util.Vector;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 public class BanService {
 
-    // Длительность "красивого" бана-античита: плавный подъём + поштучный дроп ресурсов
-    private static final int DRAMATIC_DURATION_TICKS = 100; // 5 секунд
+    // Параметры "красивого" бана-античита
+    private static final double RISE_HEIGHT_BLOCKS = 8.0;   // на сколько блоков поднимаем
+    private static final int RISE_DURATION_TICKS = 100;      // за сколько тиков (5 сек)
 
     private final LimonBanGUI plugin;
     private final BanManager banManager;
 
+    /** Игроки, которых сейчас поднимаем на бан-анимации — полностью заблокированы для движения. */
+    private final Set<UUID> animationLocked = new HashSet<>();
+
     public BanService(LimonBanGUI plugin, BanManager banManager) {
         this.plugin = plugin;
         this.banManager = banManager;
+    }
+
+    public boolean isAnimationLocked(UUID uuid) {
+        return animationLocked.contains(uuid);
     }
 
     public List<BanReason> loadReasons() {
@@ -44,9 +58,10 @@ public class BanService {
     }
 
     /**
-     * Исполняет бан. Если reason.dramatic() — игрок плавно взлетает (левитация + частицы),
-     * в течение 5 секунд по одному роняет все свои ресурсы, кик — в конце, в воздухе.
-     * Иначе — кикает сразу, ресурсы не трогаются.
+     * Исполняет бан. Если reason.dramatic() — игрок спокойно (без левитации, ручным
+     * телепортом) поднимается на 8 блоков, полностью заморожен на время подъёма,
+     * на пике взрывается фейерверк и все его ресурсы разлетаются в стороны в радиусе
+     * ~5 блоков — и только тогда кик. Иначе — кикает сразу, ресурсы не трогаются.
      * В обоих случаях в общий чат уходит публичное объявление без названия плагина.
      */
     public void executeBan(Player admin, Player targetOnline, UUID targetUuid, String targetName, BanReason reason) {
@@ -73,18 +88,14 @@ public class BanService {
         Bukkit.broadcast(BanMessages.publicBanAnnouncement(targetName, reason.label(), remaining));
     }
 
-    /** Плавный подъём (левитация + частицы) + поштучный дроп инвентаря, кик в воздухе в конце. */
     private void playDramaticBanAndKick(Player target, Component banScreen) {
-        target.addPotionEffect(new PotionEffect(PotionEffectType.LEVITATION, DRAMATIC_DURATION_TICKS + 20, 0, false, true, true));
-        target.getWorld().playSound(target.getLocation(), Sound.ENTITY_WITHER_SPAWN, 1.2f, 0.8f);
+        UUID uuid = target.getUniqueId();
+        animationLocked.add(uuid);
 
-        BukkitTask particleTask = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
-            if (!target.isOnline()) return;
-            Location loc = target.getLocation();
-            target.getWorld().spawnParticle(Particle.PORTAL, loc.clone().add(0, 1, 0), 25, 0.4, 0.7, 0.4, 0.05);
-            target.getWorld().spawnParticle(Particle.FLAME, loc.clone().add(0, 0.1, 0), 6, 0.3, 0.05, 0.3, 0.01);
-        }, 0L, 4L);
+        Location start = target.getLocation().clone();
+        double perTick = RISE_HEIGHT_BLOCKS / RISE_DURATION_TICKS;
 
+        // забираем инвентарь сразу, чтобы одним взрывом высыпать его на пике
         List<ItemStack> items = new ArrayList<>();
         for (ItemStack it : target.getInventory().getContents()) {
             if (it != null && it.getType() != Material.AIR) {
@@ -93,27 +104,63 @@ public class BanService {
         }
         target.getInventory().clear();
 
-        if (!items.isEmpty()) {
-            int interval = Math.max(1, DRAMATIC_DURATION_TICKS / items.size());
-            for (int i = 0; i < items.size(); i++) {
-                ItemStack item = items.get(i);
-                long delay = (long) i * interval;
-                Bukkit.getScheduler().runTaskLater(plugin, () -> {
-                    if (target.isOnline()) {
-                        org.bukkit.entity.Item dropped = target.getWorld().dropItemNaturally(target.getLocation(), item);
-                        dropped.setPickupDelay(200); // 10 сек — банимый физически не успеет это подобрать
-                    }
-                }, delay);
-            }
-        }
+        target.getWorld().playSound(start, Sound.ENTITY_WITHER_SPAWN, 1.2f, 0.8f);
+
+        int[] tickCounter = {0};
+        org.bukkit.scheduler.BukkitTask riseTask = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
+            tickCounter[0]++;
+            if (!target.isOnline()) return;
+
+            Location next = start.clone().add(0, perTick * tickCounter[0], 0);
+            next.setYaw(target.getLocation().getYaw());
+            next.setPitch(target.getLocation().getPitch());
+            target.teleport(next);
+
+            target.getWorld().spawnParticle(Particle.PORTAL, next.clone().add(0, 1, 0), 20, 0.4, 0.6, 0.4, 0.05);
+            target.getWorld().spawnParticle(Particle.FLAME, next.clone().add(0, 0.1, 0), 5, 0.3, 0.05, 0.3, 0.01);
+        }, 0L, 1L);
 
         Bukkit.getScheduler().runTaskLater(plugin, () -> {
-            particleTask.cancel();
-            if (target.isOnline()) {
-                target.getWorld().spawnParticle(Particle.EXPLOSION, target.getLocation(), 1);
-                target.getWorld().playSound(target.getLocation(), Sound.ENTITY_GENERIC_EXPLODE, 1f, 1f);
-                target.kick(banScreen); // кикаем прямо в воздухе, в момент "взрыва"
-            }
-        }, DRAMATIC_DURATION_TICKS);
+            riseTask.cancel();
+            animationLocked.remove(uuid);
+
+            if (!target.isOnline()) return;
+
+            Location peak = target.getLocation();
+            explodeFirework(peak);
+            scatterItems(peak, items);
+
+            target.getWorld().playSound(peak, Sound.ENTITY_GENERIC_EXPLODE, 1f, 1f);
+            target.kick(banScreen); // кикаем прямо в момент взрыва, в воздухе
+        }, RISE_DURATION_TICKS);
+    }
+
+    private void explodeFirework(Location loc) {
+        Firework fw = (Firework) loc.getWorld().spawnEntity(loc, EntityType.FIREWORK_ROCKET);
+        FireworkMeta meta = fw.getFireworkMeta();
+        meta.addEffect(FireworkEffect.builder()
+                .withColor(Color.RED, Color.ORANGE)
+                .withFade(Color.YELLOW)
+                .with(FireworkEffect.Type.BURST)
+                .trail(true)
+                .flicker(true)
+                .build());
+        meta.setPower(0);
+        fw.setFireworkMeta(meta);
+        fw.detonate(); // взрываем сразу, не ждём "полёта" ракеты
+    }
+
+    private void scatterItems(Location center, List<ItemStack> items) {
+        for (ItemStack item : items) {
+            Item dropped = center.getWorld().dropItem(center, item);
+            double angle = Math.random() * Math.PI * 2;
+            double speed = 0.25 + Math.random() * 0.3; // подобрано под разлёт ~4-5 блоков
+            Vector velocity = new Vector(
+                    Math.cos(angle) * speed,
+                    0.25 + Math.random() * 0.2,
+                    Math.sin(angle) * speed);
+            dropped.setVelocity(velocity);
+            dropped.setPickupDelay(200); // банимый физически не успеет подобрать
+        }
     }
 }

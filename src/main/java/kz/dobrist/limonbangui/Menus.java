@@ -22,6 +22,7 @@ public class Menus {
     public static final int SLOT_END_REVIEW = 12;     // "Завершить проверку"
     public static final int SLOT_REPORT = 13;          // "Анти-чит отчёт"
     public static final int SLOT_BAN = 15;              // -> открывает подменю причин бана
+    public static final int SLOT_MUTE = 16;             // "Замутить" — открывает причины мута для этого игрока
     public static final int SLOT_CLOSE = 22;
 
     public static Inventory buildMain(Player target, double trustLevel, boolean inReview) {
@@ -50,6 +51,10 @@ public class Menus {
                 Component.text("Забанить", NamedTextColor.RED),
                 List.of(Component.text("Выбрать причину и забанить", NamedTextColor.GRAY))));
 
+        inv.setItem(SLOT_MUTE, item(Material.JUKEBOX,
+                Component.text("Замутить", NamedTextColor.GOLD),
+                List.of(Component.text("Выбрать причину и замутить", NamedTextColor.GRAY))));
+
         inv.setItem(SLOT_CLOSE, item(Material.BARRIER, Component.text("Закрыть", NamedTextColor.GRAY), List.of()));
 
         fillBorder(inv);
@@ -67,7 +72,8 @@ public class Menus {
             List<Component> lore = new java.util.ArrayList<>();
             lore.add(Component.text(reason.permanent() ? "Срок: навсегда" : "Срок: " + reason.days() + " дней", NamedTextColor.GRAY));
             if (reason.dramatic()) {
-                lore.add(Component.text("⚡ Подкинет на 5 блоков и уронит ресурсы", NamedTextColor.GOLD));
+                lore.add(Component.text("⚡ Плавно поднимет на 8 блоков", NamedTextColor.GOLD));
+                lore.add(Component.text("и взорвёт фейерверком с ресурсами", NamedTextColor.GOLD));
             }
             lore.add(Component.text("ЛКМ — забанить", NamedTextColor.DARK_GRAY));
 

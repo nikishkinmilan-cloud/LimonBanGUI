@@ -39,6 +39,7 @@ public final class LimonBanGUI extends JavaPlugin {
         getServer().getPluginManager().registerEvents(new BanMenuListener(this, banManager, banService), this);
         getServer().getPluginManager().registerEvents(new FreezeListener(reviewManager), this);
         getServer().getPluginManager().registerEvents(new MuteListener(muteManager), this);
+        getServer().getPluginManager().registerEvents(new BanAnimationFreezeListener(banService), this);
         getServer().getPluginManager().registerEvents(muteMenuListener, this);
         getServer().getPluginManager().registerEvents(trustDisplayManager, this);
 

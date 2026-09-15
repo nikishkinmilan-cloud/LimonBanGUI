@@ -150,6 +150,16 @@ public class BanMenuListener implements Listener {
             return;
         }
 
+        if (slot == Menus.SLOT_MUTE) {
+            if (targetOnline == null) {
+                viewer.sendMessage(Component.text("Игрок вышел с сервера.", NamedTextColor.RED));
+                viewer.closeInventory();
+                return;
+            }
+            viewer.openInventory(MuteMenus.buildReasons(targetOnline, plugin.getMuteService().loadReasons()));
+            return;
+        }
+
         if (slot == Menus.SLOT_BAN) {
             if (targetOnline == null) {
                 viewer.sendMessage(Component.text("Игрок вышел с сервера.", NamedTextColor.RED));
