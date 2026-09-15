@@ -163,13 +163,18 @@ public class ReviewManager {
     }
 
     private Component actionBarHud() {
-        return Component.text("▌▌▌ ", NamedTextColor.DARK_RED)
+        boolean blink = (tickCounter / 20) % 2 == 0; // мигает раз в секунду — ощущение "живого" сканирования
+        Component dot = Component.text(blink ? "●" : "○", NamedTextColor.RED);
+
+        return dot
+                .append(Component.text(" "))
                 .append(gradientText("ПРОВЕРКА НА ЧИТЫ", 0xFF3B3B, 0xFFD166, true))
-                .append(Component.text(" ▐▐▐  ", NamedTextColor.DARK_RED))
-                .append(Component.text("✎ ", NamedTextColor.AQUA))
-                .append(Component.text("AnyDesk в чат", NamedTextColor.AQUA, TextDecoration.BOLD))
-                .append(Component.text("   ⚠ ", NamedTextColor.GOLD))
-                .append(Component.text("Лив = бан", NamedTextColor.RED, TextDecoration.BOLD));
+                .append(Component.text(" "))
+                .append(dot)
+                .append(Component.text("    ", NamedTextColor.DARK_GRAY))
+                .append(Component.text("✎ AnyDesk в чат", NamedTextColor.AQUA))
+                .append(Component.text("    ", NamedTextColor.DARK_GRAY))
+                .append(Component.text("⚠ Лив = бан", NamedTextColor.RED, TextDecoration.BOLD));
     }
 
     private Component reviewReminder() {
