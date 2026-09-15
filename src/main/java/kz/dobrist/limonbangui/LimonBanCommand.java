@@ -45,7 +45,14 @@ public class LimonBanCommand implements CommandExecutor, TabCompleter {
                 }
                 OfflinePlayer target = Bukkit.getOfflinePlayer(args[1]);
                 banManager.unban(target.getUniqueId());
-                sender.sendMessage("Снят бан с " + args[1] + " (если он был).");
+
+                java.util.List<String> ips = banManager.findIpsByName(args[1]);
+                for (String ip : ips) {
+                    banManager.unbanIp(ip);
+                }
+
+                sender.sendMessage("Снят бан с " + args[1] + " (если он был)"
+                        + (ips.isEmpty() ? "." : ", включая " + ips.size() + " связанный(ых) IP-бан(ов)."));
             }
             case "unbanip" -> {
                 if (args.length < 2) {

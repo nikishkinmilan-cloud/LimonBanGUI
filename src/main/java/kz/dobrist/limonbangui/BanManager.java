@@ -57,6 +57,17 @@ public class BanManager {
         save();
     }
 
+    /** Все IP, забаненные под этим именем (без учёта регистра) — чтобы unban мог сразу снять и их тоже. */
+    public List<String> findIpsByName(String name) {
+        List<String> ips = new ArrayList<>();
+        for (Map.Entry<String, BanEntry> e : ipBans.entrySet()) {
+            if (e.getValue().name().equalsIgnoreCase(name)) {
+                ips.add(e.getKey());
+            }
+        }
+        return ips;
+    }
+
     /** null = не забанен / бан истёк (запись автоматически чистится). */
     public BanEntry getActiveBan(UUID uuid) {
         BanEntry entry = bans.get(uuid);
