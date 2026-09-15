@@ -13,13 +13,15 @@ import org.bukkit.inventory.meta.SkullMeta;
 import org.bukkit.persistence.PersistentDataType;
 
 import java.util.List;
+import java.util.Map;
 
 public class Menus {
 
     // главное меню: слот -> действие
     public static final int SLOT_REVIEW = 10;        // "Вызвать на проверку"
     public static final int SLOT_END_REVIEW = 12;     // "Завершить проверку"
-    public static final int SLOT_BAN = 14;             // -> открывает подменю причин бана
+    public static final int SLOT_REPORT = 13;          // "Анти-чит отчёт"
+    public static final int SLOT_BAN = 15;              // -> открывает подменю причин бана
     public static final int SLOT_CLOSE = 22;
 
     public static Inventory buildMain(Player target, double trustLevel, boolean inReview) {
@@ -38,6 +40,11 @@ public class Menus {
         inv.setItem(SLOT_END_REVIEW, item(Material.LIME_DYE,
                 Component.text("Завершить проверку", NamedTextColor.GREEN),
                 List.of(Component.text(inReview ? "Разморозить и вернуть игрока" : "Игрок сейчас не на проверке", NamedTextColor.GRAY))));
+
+        inv.setItem(SLOT_REPORT, item(Material.WRITTEN_BOOK,
+                Component.text("Анти-чит отчёт", NamedTextColor.LIGHT_PURPLE),
+                List.of(Component.text("Разбивка нарушений по типам", NamedTextColor.GRAY),
+                        Component.text("(Fly/Speed/Reach/Aim/...)", NamedTextColor.DARK_GRAY))));
 
         inv.setItem(SLOT_BAN, item(Material.NETHERITE_SWORD,
                 Component.text("Забанить", NamedTextColor.RED),
@@ -80,6 +87,58 @@ public class Menus {
         inv.setItem(31, item(Material.ARROW, Component.text("Назад", NamedTextColor.GRAY), List.of()));
         fillBorder(inv);
         return inv;
+    }
+
+    public static Inventory buildReport(Player target, double totalTrust, Map<String, Double> breakdown) {
+        BanMenuHolder holder = new BanMenuHolder(BanMenuHolder.MenuType.REPORT, target.getUniqueId(), target.getName());
+        Inventory inv = Bukkit.createInventory(holder, 36,
+                Component.text("Анти-чит отчёт: " + target.getName(), NamedTextColor.LIGHT_PURPLE));
+        holder.setInventory(inv);
+
+        NamedTextColor totalColor = totalTrust >= 1.0 ? NamedTextColor.RED
+                : totalTrust >= 0.3 ? NamedTextColor.YELLOW
+                : NamedTextColor.GREEN;
+
+        ItemStack summary = item(Material.NETHER_STAR,
+                Component.text("Суммарный уровень: " + String.format("%.2f", totalTrust), totalColor, TextDecoration.BOLD),
+                List.of(Component.text("Чем выше — тем подозрительнее", NamedTextColor.GRAY)));
+        inv.setItem(4, summary);
+
+        List<Map.Entry<String, Double>> sorted = breakdown.entrySet().stream()
+                .sorted((a, b) -> Double.compare(b.getValue(), a.getValue()))
+                .toList();
+
+        int slot = 10;
+        if (sorted.isEmpty()) {
+            inv.setItem(13, item(Material.PAPER,
+                    Component.text("Нарушений не зафиксировано", NamedTextColor.GRAY), List.of()));
+        }
+        for (Map.Entry<String, Double> entry : sorted) {
+            Material icon = iconForCheck(entry.getKey());
+            List<Component> lore = List.of(
+                    Component.text("Накоплено: " + String.format("%.2f", entry.getValue()), NamedTextColor.GRAY)
+            );
+            inv.setItem(slot, item(icon, Component.text(entry.getKey(), NamedTextColor.YELLOW), lore));
+            slot++;
+            if ((slot + 1) % 9 == 0) slot += 2;
+        }
+
+        inv.setItem(31, item(Material.ARROW, Component.text("Назад", NamedTextColor.GRAY), List.of()));
+        fillBorder(inv);
+        return inv;
+    }
+
+    private static Material iconForCheck(String checkName) {
+        return switch (checkName) {
+            case "Fly" -> Material.FEATHER;
+            case "Speed" -> Material.SUGAR;
+            case "NoFall" -> Material.ANVIL;
+            case "Reach" -> Material.STICK;
+            case "Aim" -> Material.SPECTRAL_ARROW;
+            case "NoSwing" -> Material.LEATHER;
+            case "Grim" -> Material.ENDER_EYE;
+            default -> Material.BOOK;
+        };
     }
 
     private static ItemStack playerHead(Player target, double trustLevel, boolean inReview) {

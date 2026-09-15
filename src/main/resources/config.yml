@@ -46,6 +46,22 @@ ban-reasons:
     label: "Неадекват"
     days: 3
     dramatic: false
+  - key: "combat_cheat"
+    label: "1.2 — Хитбокс / рич / килл-аура"
+    days: 14
+    dramatic: true
+  - key: "twink"
+    label: "Мультиаккаунт / твинк-абуз"
+    days: 5
+    dramatic: false
+  - key: "staff_insult"
+    label: "Оскорбление персонала"
+    days: 2
+    dramatic: false
+  - key: "trade_scam"
+    label: "Обман при обмене/торговле"
+    days: 3
+    dramatic: false
 
 # Бан за выход с сервера прямо во время проверки (срабатывает автоматически)
 leave-review-ban:

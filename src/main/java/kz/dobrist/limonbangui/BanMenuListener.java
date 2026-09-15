@@ -93,6 +93,17 @@ public class BanMenuListener implements Listener {
         switch (holder.getType()) {
             case MAIN -> handleMainClick(viewer, event.getSlot(), targetUuid, targetName, targetOnline);
             case BAN_REASONS -> handleReasonClick(viewer, event.getSlot(), clicked, targetUuid, targetName, targetOnline);
+            case REPORT -> handleReportClick(viewer, event.getSlot(), targetOnline);
+        }
+    }
+
+    private void handleReportClick(Player viewer, int slot, Player targetOnline) {
+        if (slot == 31) { // Назад
+            if (targetOnline == null) {
+                viewer.closeInventory();
+                return;
+            }
+            openMain(viewer, targetOnline);
         }
     }
 
@@ -124,6 +135,18 @@ public class BanMenuListener implements Listener {
                     ? Component.text(targetName + " снят(а) с проверки.", NamedTextColor.GREEN)
                     : Component.text(targetName + " не был(а) на проверке.", NamedTextColor.GRAY));
             viewer.closeInventory();
+            return;
+        }
+
+        if (slot == Menus.SLOT_REPORT) {
+            if (targetOnline == null) {
+                viewer.sendMessage(Component.text("Игрок вышел с сервера.", NamedTextColor.RED));
+                viewer.closeInventory();
+                return;
+            }
+            double trust = plugin.getAntiCheatBridge().getViolationLevel(targetOnline);
+            var breakdown = plugin.getAntiCheatBridge().getViolationBreakdown(targetOnline);
+            viewer.openInventory(Menus.buildReport(targetOnline, trust, breakdown));
             return;
         }
 

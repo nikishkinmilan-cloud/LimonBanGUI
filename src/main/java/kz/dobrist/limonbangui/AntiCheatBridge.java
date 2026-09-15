@@ -5,23 +5,27 @@ import org.bukkit.entity.Player;
 import org.bukkit.plugin.Plugin;
 
 import java.lang.reflect.Method;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 /**
- * Достаёт "уровень подозрения" (0.00 = чист, выше = больше нарушений)
- * из плагина LimonAntiCheat через reflection (чтобы не тянуть его как
- * compile-зависимость — плагины остаются независимыми и работают
- * по отдельности, просто цифры "оживают", когда оба стоят вместе).
+ * Достаёт "уровень подозрения" и разбивку по чекам из плагина LimonAntiCheat
+ * через reflection (чтобы не тянуть его как compile-зависимость — плагины
+ * остаются независимыми и работают по отдельности, просто цифры "оживают",
+ * когда оба стоят вместе).
  */
 public class AntiCheatBridge {
 
     private final LimonBanGUI plugin;
     private Plugin antiCheatPlugin;
     private Method violationMethod;
+    private Method breakdownMethod;
     private boolean resolved = false;
 
     private static final String AC_PLUGIN_NAME = "LimonAntiCheat";
     private static final String AC_MAIN_CLASS = "kz.dobrist.limonanticheat.LimonAntiCheat";
-    private static final String AC_METHOD_NAME = "getViolationLevel"; // double getViolationLevel(Player)
+    private static final String AC_VIOLATION_METHOD = "getViolationLevel"; // double getViolationLevel(Player)
+    private static final String AC_BREAKDOWN_METHOD = "getViolationBreakdown"; // Map<String,Double> getViolationBreakdown(Player)
 
     public AntiCheatBridge(LimonBanGUI plugin) {
         this.plugin = plugin;
@@ -37,9 +41,10 @@ public class AntiCheatBridge {
         }
         try {
             Class<?> clazz = Class.forName(AC_MAIN_CLASS);
-            violationMethod = clazz.getMethod(AC_METHOD_NAME, Player.class);
+            violationMethod = clazz.getMethod(AC_VIOLATION_METHOD, Player.class);
+            breakdownMethod = clazz.getMethod(AC_BREAKDOWN_METHOD, Player.class);
         } catch (ReflectiveOperationException ex) {
-            plugin.getLogger().warning("Не удалось привязаться к " + AC_MAIN_CLASS + "#" + AC_METHOD_NAME
+            plugin.getLogger().warning("Не удалось привязаться к " + AC_MAIN_CLASS
                     + ". Причина: " + ex);
         }
     }
@@ -54,5 +59,24 @@ public class AntiCheatBridge {
         } catch (ReflectiveOperationException ignored) {
         }
         return 0.0;
+    }
+
+    /** Разбивка нарушений по чекам (Fly/Speed/Reach/Aim/NoSwing/Grim -> сумма). Пусто, если мост не настроен. */
+    public Map<String, Double> getViolationBreakdown(Player player) {
+        resolve();
+        Map<String, Double> out = new LinkedHashMap<>();
+        if (breakdownMethod == null || antiCheatPlugin == null) return out;
+        try {
+            Object result = breakdownMethod.invoke(antiCheatPlugin, player);
+            if (result instanceof Map<?, ?> map) {
+                for (Map.Entry<?, ?> e : map.entrySet()) {
+                    if (e.getValue() instanceof Number n) {
+                        out.put(String.valueOf(e.getKey()), n.doubleValue());
+                    }
+                }
+            }
+        } catch (ReflectiveOperationException ignored) {
+        }
+        return out;
     }
 }
