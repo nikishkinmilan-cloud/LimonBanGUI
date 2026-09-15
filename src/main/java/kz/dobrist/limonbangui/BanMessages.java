@@ -39,4 +39,17 @@ public class BanMessages {
                 .append(Component.text(remaining, NamedTextColor.WHITE))
                 .append(Component.text("\n▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬", NamedTextColor.DARK_GRAY));
     }
+
+    /** Публичное объявление о муте — без названия плагина, видят все. */
+    public static Component publicMuteAnnouncement(String playerName, String reason, String remaining) {
+        return Component.text("▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬\n", NamedTextColor.DARK_GRAY)
+                .append(Component.text("🔇 ", NamedTextColor.GRAY))
+                .append(Component.text(playerName, NamedTextColor.YELLOW, TextDecoration.BOLD))
+                .append(Component.text(" замьючен(а)\n", NamedTextColor.GRAY))
+                .append(Component.text("Причина: ", NamedTextColor.GRAY))
+                .append(Component.text(reason + "\n", NamedTextColor.WHITE))
+                .append(Component.text("Срок: ", NamedTextColor.GRAY))
+                .append(Component.text(remaining, NamedTextColor.WHITE))
+                .append(Component.text("\n▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬", NamedTextColor.DARK_GRAY));
+    }
 }

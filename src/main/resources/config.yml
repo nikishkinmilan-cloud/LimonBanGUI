@@ -68,6 +68,22 @@ leave-review-ban:
   reason: "Лив с проверки"
   days: 7
 
+# Причины во вкладке мута (/limonban mute). key — техническое имя, label — текст
+# на кнопке, minutes — срок мута в минутах.
+mute-reasons:
+  - key: "2.1"
+    label: "2.1 — Спам / Флуд / Капс"
+    minutes: 30
+  - key: "2.2"
+    label: "2.2 — Оскорбление родных"
+    minutes: 1440
+  - key: "2.3"
+    label: "2.3 — Реклама"
+    minutes: 720
+  - key: "2.4"
+    label: "2.4 — Выдача себя за персонал"
+    minutes: 300
+
 # Пороги для цвета цифры над головой (значение = уровень подозрения из LimonAntiCheat)
 trust-thresholds:
   green-max: 0.10

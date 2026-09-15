@@ -9,7 +9,7 @@ commands:
   limonban:
     description: Управление плагином LimonBanGUI
     permission: limonban.admin
-    usage: /limonban reload|unban <ник>
+    usage: /limonban reload|unban <ник>|mute|unmute <ник>|room ...
 
 permissions:
   limonban.admin:

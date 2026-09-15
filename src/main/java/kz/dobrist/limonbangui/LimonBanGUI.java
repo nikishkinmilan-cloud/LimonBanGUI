@@ -14,6 +14,9 @@ public final class LimonBanGUI extends JavaPlugin {
     private CheckRoomManager checkRoomManager;
     private ReviewManager reviewManager;
     private BanService banService;
+    private MuteManager muteManager;
+    private MuteService muteService;
+    private MuteMenuListener muteMenuListener;
 
     @Override
     public void onEnable() {
@@ -28,13 +31,18 @@ public final class LimonBanGUI extends JavaPlugin {
         this.checkRoomManager = new CheckRoomManager(this);
         this.reviewManager = new ReviewManager(this, checkRoomManager);
         this.banService = new BanService(this, banManager);
+        this.muteManager = new MuteManager(this);
+        this.muteService = new MuteService(this, muteManager);
+        this.muteMenuListener = new MuteMenuListener(muteService);
 
         getServer().getPluginManager().registerEvents(new LoginListener(this, banManager), this);
         getServer().getPluginManager().registerEvents(new BanMenuListener(this, banManager, banService), this);
         getServer().getPluginManager().registerEvents(new FreezeListener(reviewManager), this);
+        getServer().getPluginManager().registerEvents(new MuteListener(muteManager), this);
+        getServer().getPluginManager().registerEvents(muteMenuListener, this);
         getServer().getPluginManager().registerEvents(trustDisplayManager, this);
 
-        LimonBanCommand command = new LimonBanCommand(this, banManager, checkRoomManager);
+        LimonBanCommand command = new LimonBanCommand(this, banManager, checkRoomManager, muteMenuListener);
         getCommand("limonban").setExecutor(command);
         getCommand("limonban").setTabCompleter(command);
 
@@ -57,6 +65,9 @@ public final class LimonBanGUI extends JavaPlugin {
         }
         if (reviewManager != null) {
             reviewManager.stop();
+        }
+        if (muteManager != null) {
+            muteManager.save();
         }
     }
 
@@ -94,5 +105,17 @@ public final class LimonBanGUI extends JavaPlugin {
 
     public BanService getBanService() {
         return banService;
+    }
+
+    public MuteManager getMuteManager() {
+        return muteManager;
+    }
+
+    public MuteService getMuteService() {
+        return muteService;
+    }
+
+    public MuteMenuListener getMuteMenuListener() {
+        return muteMenuListener;
     }
 }
