@@ -2,20 +2,16 @@ package kz.dobrist.limonbangui;
 
 import net.kyori.adventure.text.Component;
 import org.bukkit.Bukkit;
-import org.bukkit.Color;
-import org.bukkit.FireworkEffect;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.Particle;
 import org.bukkit.Sound;
-import org.bukkit.entity.EntityType;
-import org.bukkit.entity.Firework;
 import org.bukkit.entity.Item;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
-import org.bukkit.inventory.meta.FireworkMeta;
+import org.bukkit.potion.PotionEffect;
+import org.bukkit.potion.PotionEffectType;
 import org.bukkit.scheduler.BukkitTask;
-import org.bukkit.util.Vector;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -27,9 +23,7 @@ import java.util.UUID;
 public class BanService {
 
     // Параметры "красивого" бана-античита
-    private static final double RISE_HEIGHT_BLOCKS = 8.0;   // на сколько блоков поднимаем (если не упрётся в потолок)
-    private static final int RISE_DURATION_TICKS = 100;      // за сколько тиков (5 сек)
-    private static final double HEAD_CLEARANCE = 1.9;         // насколько выше головы проверяем потолок
+    private static final int FLIGHT_DURATION_TICKS = 140; // 7 секунд
 
     private final LimonBanGUI plugin;
     private final BanManager banManager;
@@ -62,10 +56,10 @@ public class BanService {
     /**
      * Исполняет бан. Банит и по UUID, и по IP игрока (если он сейчас онлайн и его
      * адрес доступен) — это ловит альты с того же устройства/сети.
-     * Если reason.dramatic() — игрок спокойно (без левитации, ручным телепортом)
-     * поднимается на 8 блоков ИЛИ до потолка, если тот ближе (не пролетает сквозь
-     * блоки), полностью заморожен на время подъёма, на пике взрывается фейерверк
-     * и все его ресурсы разлетаются в стороны — и только тогда кик.
+     * Если reason.dramatic() — игрок плавно левитирует 7 секунд, при этом полностью
+     * заморожен (двигаться не может вообще — только поднимается). Обычные предметы
+     * выпадают по одному в течение полёта, броня остаётся на игроке почти весь полёт
+     * и слетает последней — эффектнее смотрится. Кик — в конце, в воздухе.
      * Иначе — кикает сразу, ресурсы не трогаются.
      */
     public void executeBan(Player admin, Player targetOnline, UUID targetUuid, String targetName, BanReason reason) {
@@ -99,91 +93,80 @@ public class BanService {
 
     private void playDramaticBanAndKick(Player target, Component banScreen) {
         UUID uuid = target.getUniqueId();
-        animationLocked.add(uuid);
+        animationLocked.add(uuid); // полная заморозка — двигаться нельзя, только левитация вверх
 
-        Location start = target.getLocation().clone();
-        double perTick = RISE_HEIGHT_BLOCKS / RISE_DURATION_TICKS;
+        target.addPotionEffect(new PotionEffect(PotionEffectType.LEVITATION, FLIGHT_DURATION_TICKS + 20, 0, false, true, true));
+        target.getWorld().playSound(target.getLocation(), Sound.ENTITY_WITHER_SPAWN, 1.2f, 0.8f);
 
-        // забираем инвентарь сразу, чтобы одним взрывом высыпать его на пике
-        List<ItemStack> items = new ArrayList<>();
+        BukkitTask particleTask = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
+            if (!target.isOnline()) return;
+            Location loc = target.getLocation();
+            target.getWorld().spawnParticle(Particle.PORTAL, loc.clone().add(0, 1, 0), 25, 0.4, 0.7, 0.4, 0.05);
+            target.getWorld().spawnParticle(Particle.FLAME, loc.clone().add(0, 0.1, 0), 6, 0.3, 0.05, 0.3, 0.01);
+        }, 0L, 4L);
+
+        // обычные предметы забираем сразу — будут дропаться по одному
+        List<ItemStack> mainItems = new ArrayList<>();
         for (ItemStack it : target.getInventory().getContents()) {
-            if (it != null && it.getType() != Material.AIR) {
-                items.add(it.clone());
-            }
+            if (it != null && it.getType() != Material.AIR) mainItems.add(it.clone());
         }
         target.getInventory().clear();
 
-        target.getWorld().playSound(start, Sound.ENTITY_WITHER_SPAWN, 1.2f, 0.8f);
+        // список "действий-дропов": сначала обычные вещи, броня — в конце списка,
+        // так что физически она провисит на игроке почти весь полёт и слетит последней
+        List<Runnable> drops = new ArrayList<>();
+        for (ItemStack item : mainItems) {
+            drops.add(() -> dropAt(target, item));
+        }
+        for (int slot = 0; slot < 4; slot++) {
+            int armorSlot = slot;
+            drops.add(() -> {
+                ItemStack piece = getArmorSlot(target, armorSlot);
+                if (piece != null && piece.getType() != Material.AIR) {
+                    setArmorSlot(target, armorSlot, null);
+                    dropAt(target, piece);
+                }
+            });
+        }
 
-        int[] tickCounter = {0};
-        BukkitTask[] riseTaskRef = new BukkitTask[1];
-
-        riseTaskRef[0] = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
-            tickCounter[0]++;
-
-            if (!target.isOnline()) {
-                riseTaskRef[0].cancel();
-                animationLocked.remove(uuid);
-                return;
+        if (!drops.isEmpty()) {
+            int interval = Math.max(1, FLIGHT_DURATION_TICKS / drops.size());
+            for (int i = 0; i < drops.size(); i++) {
+                Runnable action = drops.get(i);
+                long delay = (long) i * interval;
+                Bukkit.getScheduler().runTaskLater(plugin, () -> {
+                    if (target.isOnline()) action.run();
+                }, delay);
             }
+        }
 
-            Location candidate = start.clone().add(0, perTick * tickCounter[0], 0);
-            Location currentFacing = target.getLocation();
-            candidate.setYaw(currentFacing.getYaw());
-            candidate.setPitch(currentFacing.getPitch());
-
-            // не пролетаем сквозь потолок пещеры/постройки — смотрим блок чуть выше головы в точке назначения
-            boolean ceilingHit = candidate.clone().add(0, HEAD_CLEARANCE, 0).getBlock().getType().isSolid();
-            boolean durationDone = tickCounter[0] >= RISE_DURATION_TICKS;
-
-            if (ceilingHit || durationDone) {
-                riseTaskRef[0].cancel();
-                animationLocked.remove(uuid);
-                finishWithExplosion(target, items, banScreen);
-                return;
+        Bukkit.getScheduler().runTaskLater(plugin, () -> {
+            particleTask.cancel();
+            animationLocked.remove(uuid);
+            if (target.isOnline()) {
+                Location loc = target.getLocation();
+                target.getWorld().spawnParticle(Particle.EXPLOSION, loc, 1);
+                target.getWorld().playSound(loc, Sound.ENTITY_GENERIC_EXPLODE, 1f, 1f);
+                target.kick(banScreen); // кикаем прямо в воздухе, в момент "взрыва"
             }
-
-            target.teleport(candidate);
-            target.getWorld().spawnParticle(Particle.PORTAL, candidate.clone().add(0, 1, 0), 20, 0.4, 0.6, 0.4, 0.05);
-            target.getWorld().spawnParticle(Particle.FLAME, candidate.clone().add(0, 0.1, 0), 5, 0.3, 0.05, 0.3, 0.01);
-        }, 0L, 1L);
+        }, FLIGHT_DURATION_TICKS);
     }
 
-    private void finishWithExplosion(Player target, List<ItemStack> items, Component banScreen) {
-        Location peak = target.getLocation();
-        explodeFirework(peak);
-        scatterItems(peak, items);
-
-        target.getWorld().playSound(peak, Sound.ENTITY_GENERIC_EXPLODE, 1f, 1f);
-        target.kick(banScreen); // кикаем прямо в момент взрыва
+    private void dropAt(Player target, ItemStack item) {
+        Item dropped = target.getWorld().dropItemNaturally(target.getLocation(), item);
+        dropped.setPickupDelay(200); // банимый физически не успеет подобрать
     }
 
-    private void explodeFirework(Location loc) {
-        Firework fw = (Firework) loc.getWorld().spawnEntity(loc, EntityType.FIREWORK_ROCKET);
-        FireworkMeta meta = fw.getFireworkMeta();
-        meta.addEffect(FireworkEffect.builder()
-                .withColor(Color.RED, Color.ORANGE)
-                .withFade(Color.YELLOW)
-                .with(FireworkEffect.Type.BURST)
-                .trail(true)
-                .flicker(true)
-                .build());
-        meta.setPower(0);
-        fw.setFireworkMeta(meta);
-        fw.detonate(); // взрываем сразу, не ждём "полёта" ракеты
+    private ItemStack getArmorSlot(Player p, int index) {
+        return p.getInventory().getArmorContents()[index]; // 0=ботинки 1=штаны 2=нагрудник 3=шлем
     }
 
-    private void scatterItems(Location center, List<ItemStack> items) {
-        for (ItemStack item : items) {
-            Item dropped = center.getWorld().dropItem(center, item);
-            double angle = Math.random() * Math.PI * 2;
-            double speed = 0.25 + Math.random() * 0.3; // подобрано под разлёт ~4-5 блоков
-            Vector velocity = new Vector(
-                    Math.cos(angle) * speed,
-                    0.25 + Math.random() * 0.2,
-                    Math.sin(angle) * speed);
-            dropped.setVelocity(velocity);
-            dropped.setPickupDelay(200); // банимый физически не успеет подобрать
+    private void setArmorSlot(Player p, int index, ItemStack value) {
+        switch (index) {
+            case 0 -> p.getInventory().setBoots(value);
+            case 1 -> p.getInventory().setLeggings(value);
+            case 2 -> p.getInventory().setChestplate(value);
+            case 3 -> p.getInventory().setHelmet(value);
         }
     }
 }

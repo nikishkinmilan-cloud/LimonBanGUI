@@ -72,8 +72,8 @@ public class Menus {
             List<Component> lore = new java.util.ArrayList<>();
             lore.add(Component.text(reason.permanent() ? "Срок: навсегда" : "Срок: " + reason.days() + " дней", NamedTextColor.GRAY));
             if (reason.dramatic()) {
-                lore.add(Component.text("⚡ Плавно поднимет на 8 блоков", NamedTextColor.GOLD));
-                lore.add(Component.text("и взорвёт фейерверком с ресурсами", NamedTextColor.GOLD));
+                lore.add(Component.text("⚡ Левитация 7 сек, заморозка,", NamedTextColor.GOLD));
+                lore.add(Component.text("ресурсы и броня выпадают постепенно", NamedTextColor.GOLD));
             }
             lore.add(Component.text("ЛКМ — забанить", NamedTextColor.DARK_GRAY));
 
