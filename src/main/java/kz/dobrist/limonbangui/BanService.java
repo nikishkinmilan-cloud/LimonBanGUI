@@ -9,9 +9,8 @@ import org.bukkit.Sound;
 import org.bukkit.entity.Item;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
-import org.bukkit.potion.PotionEffect;
-import org.bukkit.potion.PotionEffectType;
 import org.bukkit.scheduler.BukkitTask;
+import org.bukkit.util.Vector;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -22,8 +21,12 @@ import java.util.UUID;
 
 public class BanService {
 
-    // Параметры "красивого" бана-античита
-    private static final int FLIGHT_DURATION_TICKS = 140; // 7 секунд
+    // Параметры "красивого" бана-античита (в стиле кольца вокруг игрока)
+    private static final double LAUNCH_HEIGHT_BLOCKS = 3.0; // на сколько резко подкидывает вверх
+    private static final int RING_DURATION_TICKS = 70;       // сколько крутится кольцо (~3.5 сек)
+    private static final double RING_BASE_RADIUS = 1.6;
+    private static final double RING_SPIN_DEGREES_PER_TICK = 6.0;
+    private static final long KICK_DELAY_AFTER_RELEASE_TICKS = 20L;
 
     private final LimonBanGUI plugin;
     private final BanManager banManager;
@@ -56,11 +59,11 @@ public class BanService {
     /**
      * Исполняет бан. Банит и по UUID, и по IP игрока (если он сейчас онлайн и его
      * адрес доступен) — это ловит альты с того же устройства/сети.
-     * Если reason.dramatic() — игрок плавно левитирует 7 секунд, при этом полностью
-     * заморожен (двигаться не может вообще — только поднимается). Обычные предметы
-     * выпадают по одному в течение полёта, броня остаётся на игроке почти весь полёт
-     * и слетает последней — эффектнее смотрится. Кик — в конце, в воздухе.
-     * Иначе — кикает сразу, ресурсы не трогаются.
+     * Если reason.dramatic() — игрока резко подкидывает вверх, весь его инвентарь
+     * (включая броню) сразу становится вращающимся кольцом предметов вокруг него,
+     * игрок полностью заморожен и висит на пике. Через несколько секунд кольцо
+     * рассыпается (гравитация включается, предметы разлетаются и падают), и только
+     * тогда кик. Иначе — кикает сразу, ресурсы не трогаются.
      */
     public void executeBan(Player admin, Player targetOnline, UUID targetUuid, String targetName, BanReason reason) {
         String ip = (targetOnline != null && targetOnline.getAddress() != null)
@@ -82,7 +85,7 @@ public class BanService {
             plugin.getReviewManager().endReview(targetOnline); // на случай если банили прямо с проверки
 
             if (reason.dramatic()) {
-                playDramaticBanAndKick(targetOnline, banScreen);
+                playRingBanAndKick(targetOnline, banScreen);
             } else {
                 targetOnline.kick(banScreen);
             }
@@ -91,82 +94,96 @@ public class BanService {
         Bukkit.broadcast(BanMessages.publicBanAnnouncement(targetName, reason.label(), remaining));
     }
 
-    private void playDramaticBanAndKick(Player target, Component banScreen) {
+    private void playRingBanAndKick(Player target, Component banScreen) {
         UUID uuid = target.getUniqueId();
-        animationLocked.add(uuid); // полная заморозка — двигаться нельзя, только левитация вверх
+        animationLocked.add(uuid);
 
-        target.addPotionEffect(new PotionEffect(PotionEffectType.LEVITATION, FLIGHT_DURATION_TICKS + 20, 0, false, true, true));
-        target.getWorld().playSound(target.getLocation(), Sound.ENTITY_WITHER_SPAWN, 1.2f, 0.8f);
-
-        BukkitTask particleTask = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
-            if (!target.isOnline()) return;
-            Location loc = target.getLocation();
-            target.getWorld().spawnParticle(Particle.PORTAL, loc.clone().add(0, 1, 0), 25, 0.4, 0.7, 0.4, 0.05);
-            target.getWorld().spawnParticle(Particle.FLAME, loc.clone().add(0, 0.1, 0), 6, 0.3, 0.05, 0.3, 0.01);
-        }, 0L, 4L);
-
-        // обычные предметы забираем сразу — будут дропаться по одному
-        List<ItemStack> mainItems = new ArrayList<>();
+        // забираем весь инвентарь (включая броню) сразу — он станет кольцом
+        List<ItemStack> allItems = new ArrayList<>();
         for (ItemStack it : target.getInventory().getContents()) {
-            if (it != null && it.getType() != Material.AIR) mainItems.add(it.clone());
+            if (it != null && it.getType() != Material.AIR) allItems.add(it.clone());
+        }
+        for (ItemStack it : target.getInventory().getArmorContents()) {
+            if (it != null && it.getType() != Material.AIR) allItems.add(it.clone());
         }
         target.getInventory().clear();
+        target.getInventory().setArmorContents(new ItemStack[4]);
 
-        // список "действий-дропов": сначала обычные вещи, броня — в конце списка,
-        // так что физически она провисит на игроке почти весь полёт и слетит последней
-        List<Runnable> drops = new ArrayList<>();
-        for (ItemStack item : mainItems) {
-            drops.add(() -> dropAt(target, item));
-        }
-        for (int slot = 0; slot < 4; slot++) {
-            int armorSlot = slot;
-            drops.add(() -> {
-                ItemStack piece = getArmorSlot(target, armorSlot);
-                if (piece != null && piece.getType() != Material.AIR) {
-                    setArmorSlot(target, armorSlot, null);
-                    dropAt(target, piece);
-                }
-            });
+        Location peak = target.getLocation().clone().add(0, LAUNCH_HEIGHT_BLOCKS, 0);
+        target.getWorld().playSound(target.getLocation(), Sound.ENTITY_WITHER_SPAWN, 1.2f, 0.9f);
+        target.getWorld().spawnParticle(Particle.EXPLOSION, target.getLocation(), 1);
+        target.teleport(peak);
+
+        List<Item> ring = new ArrayList<>();
+        for (ItemStack stack : allItems) {
+            Item entity = target.getWorld().dropItem(peak.clone().add(0, 1, 0), stack);
+            entity.setGravity(false);
+            entity.setVelocity(new Vector(0, 0, 0));
+            entity.setPickupDelay(Short.MAX_VALUE); // недоступно для подбора, пока крутится в кольце
+            ring.add(entity);
         }
 
-        if (!drops.isEmpty()) {
-            int interval = Math.max(1, FLIGHT_DURATION_TICKS / drops.size());
-            for (int i = 0; i < drops.size(); i++) {
-                Runnable action = drops.get(i);
-                long delay = (long) i * interval;
+        double baseRadius = ring.isEmpty() ? 0 : RING_BASE_RADIUS;
+        int[] tick = {0};
+        BukkitTask[] taskRef = new BukkitTask[1];
+
+        taskRef[0] = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
+            tick[0]++;
+
+            if (!target.isOnline()) {
+                taskRef[0].cancel();
+                ring.forEach(Item::remove);
+                animationLocked.remove(uuid);
+                return;
+            }
+
+            // держим игрока строго на пике — кольцо должно крутиться вокруг стабильной точки
+            Location hold = peak.clone();
+            hold.setYaw(target.getLocation().getYaw());
+            hold.setPitch(target.getLocation().getPitch());
+            target.teleport(hold);
+
+            double spin = tick[0] * RING_SPIN_DEGREES_PER_TICK;
+            double radius = baseRadius + Math.sin(tick[0] * 0.1) * 0.15;
+            for (int i = 0; i < ring.size(); i++) {
+                Item entity = ring.get(i);
+                if (entity.isDead()) continue;
+                double angleDeg = spin + (360.0 / ring.size()) * i;
+                double rad = Math.toRadians(angleDeg);
+                double x = peak.getX() + Math.cos(rad) * radius;
+                double z = peak.getZ() + Math.sin(rad) * radius;
+                double y = peak.getY() + 1.1 + Math.sin(tick[0] * 0.15 + i) * 0.1;
+                entity.teleport(new Location(peak.getWorld(), x, y, z));
+            }
+
+            if (tick[0] % 5 == 0) {
+                target.getWorld().spawnParticle(Particle.PORTAL, peak.clone().add(0, 1, 0), 12, 0.4, 0.6, 0.4, 0.03);
+            }
+
+            if (tick[0] >= RING_DURATION_TICKS) {
+                taskRef[0].cancel();
+                releaseRing(peak, ring);
+                animationLocked.remove(uuid);
+
                 Bukkit.getScheduler().runTaskLater(plugin, () -> {
-                    if (target.isOnline()) action.run();
-                }, delay);
+                    if (target.isOnline()) target.kick(banScreen);
+                }, KICK_DELAY_AFTER_RELEASE_TICKS);
             }
+        }, 0L, 1L);
+    }
+
+    /** Кольцо "рассыпается" — гравитация включается, предметы разлетаются в стороны и падают. */
+    private void releaseRing(Location center, List<Item> ring) {
+        for (int i = 0; i < ring.size(); i++) {
+            Item entity = ring.get(i);
+            if (entity.isDead()) continue;
+            entity.setGravity(true);
+            entity.setPickupDelay(200);
+            double angleDeg = (360.0 / ring.size()) * i;
+            double rad = Math.toRadians(angleDeg);
+            entity.setVelocity(new Vector(Math.cos(rad) * 0.15, 0.05, Math.sin(rad) * 0.15));
         }
-
-        Bukkit.getScheduler().runTaskLater(plugin, () -> {
-            particleTask.cancel();
-            animationLocked.remove(uuid);
-            if (target.isOnline()) {
-                Location loc = target.getLocation();
-                target.getWorld().spawnParticle(Particle.EXPLOSION, loc, 1);
-                target.getWorld().playSound(loc, Sound.ENTITY_GENERIC_EXPLODE, 1f, 1f);
-                target.kick(banScreen); // кикаем прямо в воздухе, в момент "взрыва"
-            }
-        }, FLIGHT_DURATION_TICKS);
-    }
-
-    private void dropAt(Player target, ItemStack item) {
-        Item dropped = target.getWorld().dropItemNaturally(target.getLocation(), item);
-        dropped.setPickupDelay(200); // банимый физически не успеет подобрать
-    }
-
-    private ItemStack getArmorSlot(Player p, int index) {
-        return p.getInventory().getArmorContents()[index]; // 0=ботинки 1=штаны 2=нагрудник 3=шлем
-    }
-
-    private void setArmorSlot(Player p, int index, ItemStack value) {
-        switch (index) {
-            case 0 -> p.getInventory().setBoots(value);
-            case 1 -> p.getInventory().setLeggings(value);
-            case 2 -> p.getInventory().setChestplate(value);
-            case 3 -> p.getInventory().setHelmet(value);
-        }
+        center.getWorld().spawnParticle(Particle.EXPLOSION, center, 1);
+        center.getWorld().playSound(center, Sound.ENTITY_GENERIC_EXPLODE, 1f, 1f);
     }
 }
