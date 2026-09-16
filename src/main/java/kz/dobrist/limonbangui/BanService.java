@@ -21,12 +21,9 @@ import java.util.UUID;
 
 public class BanService {
 
-    // Параметры "красивого" бана-античита (в стиле кольца вокруг игрока)
-    private static final double LAUNCH_HEIGHT_BLOCKS = 3.0; // на сколько резко подкидывает вверх
-    private static final int RING_DURATION_TICKS = 70;       // сколько крутится кольцо (~3.5 сек)
-    private static final double RING_BASE_RADIUS = 1.6;
-    private static final double RING_SPIN_DEGREES_PER_TICK = 6.0;
-    private static final long KICK_DELAY_AFTER_RELEASE_TICKS = 20L;
+    // Параметры "красивого" бана-античита
+    private static final double RISE_HEIGHT_BLOCKS = 5.0; // насколько медленно поднимается
+    private static final int DURATION_TICKS = 100;         // за сколько тиков (5 секунд)
 
     private final LimonBanGUI plugin;
     private final BanManager banManager;
@@ -59,11 +56,11 @@ public class BanService {
     /**
      * Исполняет бан. Банит и по UUID, и по IP игрока (если он сейчас онлайн и его
      * адрес доступен) — это ловит альты с того же устройства/сети.
-     * Если reason.dramatic() — игрока резко подкидывает вверх, весь его инвентарь
-     * (включая броню) сразу становится вращающимся кольцом предметов вокруг него,
-     * игрок полностью заморожен и висит на пике. Через несколько секунд кольцо
-     * рассыпается (гравитация включается, предметы разлетаются и падают), и только
-     * тогда кик. Иначе — кикает сразу, ресурсы не трогаются.
+     * Если reason.dramatic() — игрок медленно и плавно поднимается 5 секунд,
+     * полностью заморожен, а весь его инвентарь (включая броню) за эти же 5 секунд
+     * постепенно вылетает по одному предмету — каждый под своим углом по кругу,
+     * так что визуально получается спираль падающих вниз вещей. Кик — в конце.
+     * Иначе — кикает сразу, ресурсы не трогаются.
      */
     public void executeBan(Player admin, Player targetOnline, UUID targetUuid, String targetName, BanReason reason) {
         String ip = (targetOnline != null && targetOnline.getAddress() != null)
@@ -85,7 +82,7 @@ public class BanService {
             plugin.getReviewManager().endReview(targetOnline); // на случай если банили прямо с проверки
 
             if (reason.dramatic()) {
-                playRingBanAndKick(targetOnline, banScreen);
+                playDramaticBanAndKick(targetOnline, banScreen);
             } else {
                 targetOnline.kick(banScreen);
             }
@@ -94,11 +91,10 @@ public class BanService {
         Bukkit.broadcast(BanMessages.publicBanAnnouncement(targetName, reason.label(), remaining));
     }
 
-    private void playRingBanAndKick(Player target, Component banScreen) {
+    private void playDramaticBanAndKick(Player target, Component banScreen) {
         UUID uuid = target.getUniqueId();
         animationLocked.add(uuid);
 
-        // забираем весь инвентарь (включая броню) сразу — он станет кольцом
         List<ItemStack> allItems = new ArrayList<>();
         for (ItemStack it : target.getInventory().getContents()) {
             if (it != null && it.getType() != Material.AIR) allItems.add(it.clone());
@@ -109,22 +105,15 @@ public class BanService {
         target.getInventory().clear();
         target.getInventory().setArmorContents(new ItemStack[4]);
 
-        Location peak = target.getLocation().clone().add(0, LAUNCH_HEIGHT_BLOCKS, 0);
-        target.getWorld().playSound(target.getLocation(), Sound.ENTITY_WITHER_SPAWN, 1.2f, 0.9f);
-        target.getWorld().spawnParticle(Particle.EXPLOSION, target.getLocation(), 1);
-        target.teleport(peak);
+        Location start = target.getLocation().clone();
+        double perTick = RISE_HEIGHT_BLOCKS / DURATION_TICKS;
+        int totalItems = allItems.size();
+        double angleStep = totalItems > 0 ? 360.0 / totalItems : 0;
 
-        List<Item> ring = new ArrayList<>();
-        for (ItemStack stack : allItems) {
-            Item entity = target.getWorld().dropItem(peak.clone().add(0, 1, 0), stack);
-            entity.setGravity(false);
-            entity.setVelocity(new Vector(0, 0, 0));
-            entity.setPickupDelay(Short.MAX_VALUE); // недоступно для подбора, пока крутится в кольце
-            ring.add(entity);
-        }
+        target.getWorld().playSound(start, Sound.ENTITY_WITHER_SPAWN, 1.2f, 0.8f);
 
-        double baseRadius = ring.isEmpty() ? 0 : RING_BASE_RADIUS;
         int[] tick = {0};
+        int[] nextDropIndex = {0};
         BukkitTask[] taskRef = new BukkitTask[1];
 
         taskRef[0] = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
@@ -132,58 +121,43 @@ public class BanService {
 
             if (!target.isOnline()) {
                 taskRef[0].cancel();
-                ring.forEach(Item::remove);
                 animationLocked.remove(uuid);
                 return;
             }
 
-            // держим игрока строго на пике — кольцо должно крутиться вокруг стабильной точки
-            Location hold = peak.clone();
-            hold.setYaw(target.getLocation().getYaw());
-            hold.setPitch(target.getLocation().getPitch());
-            target.teleport(hold);
+            Location next = start.clone().add(0, perTick * tick[0], 0);
+            next.setYaw(target.getLocation().getYaw());
+            next.setPitch(target.getLocation().getPitch());
+            target.teleport(next);
 
-            double spin = tick[0] * RING_SPIN_DEGREES_PER_TICK;
-            double radius = baseRadius + Math.sin(tick[0] * 0.1) * 0.15;
-            for (int i = 0; i < ring.size(); i++) {
-                Item entity = ring.get(i);
-                if (entity.isDead()) continue;
-                double angleDeg = spin + (360.0 / ring.size()) * i;
-                double rad = Math.toRadians(angleDeg);
-                double x = peak.getX() + Math.cos(rad) * radius;
-                double z = peak.getZ() + Math.sin(rad) * radius;
-                double y = peak.getY() + 1.1 + Math.sin(tick[0] * 0.15 + i) * 0.1;
-                entity.teleport(new Location(peak.getWorld(), x, y, z));
+            target.getWorld().spawnParticle(Particle.PORTAL, next.clone().add(0, 1, 0), 15, 0.4, 0.6, 0.4, 0.04);
+            target.getWorld().spawnParticle(Particle.FLAME, next.clone().add(0, 0.1, 0), 4, 0.3, 0.05, 0.3, 0.01);
+
+            // равномерно распределяем выпадение предметов по всей длительности —
+            // каждый следующий под своим углом, получается спираль вниз
+            if (totalItems > 0) {
+                int shouldHaveDropped = (int) ((long) tick[0] * totalItems / DURATION_TICKS);
+                while (nextDropIndex[0] < shouldHaveDropped && nextDropIndex[0] < totalItems) {
+                    int i = nextDropIndex[0];
+                    ItemStack stack = allItems.get(i);
+                    double rad = Math.toRadians(angleStep * i);
+                    Item dropped = target.getWorld().dropItem(next.clone().add(0, 1, 0), stack);
+                    double speed = 0.18;
+                    dropped.setVelocity(new Vector(Math.cos(rad) * speed, 0.15, Math.sin(rad) * speed));
+                    dropped.setPickupDelay(200); // банимый физически не успеет подобрать
+                    nextDropIndex[0]++;
+                }
             }
 
-            if (tick[0] % 5 == 0) {
-                target.getWorld().spawnParticle(Particle.PORTAL, peak.clone().add(0, 1, 0), 12, 0.4, 0.6, 0.4, 0.03);
-            }
-
-            if (tick[0] >= RING_DURATION_TICKS) {
+            if (tick[0] >= DURATION_TICKS) {
                 taskRef[0].cancel();
-                releaseRing(peak, ring);
                 animationLocked.remove(uuid);
 
-                Bukkit.getScheduler().runTaskLater(plugin, () -> {
-                    if (target.isOnline()) target.kick(banScreen);
-                }, KICK_DELAY_AFTER_RELEASE_TICKS);
+                Location peak = target.getLocation();
+                target.getWorld().spawnParticle(Particle.EXPLOSION, peak, 1);
+                target.getWorld().playSound(peak, Sound.ENTITY_GENERIC_EXPLODE, 1f, 1f);
+                target.kick(banScreen); // кикаем в момент "взрыва", в воздухе
             }
         }, 0L, 1L);
-    }
-
-    /** Кольцо "рассыпается" — гравитация включается, предметы разлетаются в стороны и падают. */
-    private void releaseRing(Location center, List<Item> ring) {
-        for (int i = 0; i < ring.size(); i++) {
-            Item entity = ring.get(i);
-            if (entity.isDead()) continue;
-            entity.setGravity(true);
-            entity.setPickupDelay(200);
-            double angleDeg = (360.0 / ring.size()) * i;
-            double rad = Math.toRadians(angleDeg);
-            entity.setVelocity(new Vector(Math.cos(rad) * 0.15, 0.05, Math.sin(rad) * 0.15));
-        }
-        center.getWorld().spawnParticle(Particle.EXPLOSION, center, 1);
-        center.getWorld().playSound(center, Sound.ENTITY_GENERIC_EXPLODE, 1f, 1f);
     }
 }
