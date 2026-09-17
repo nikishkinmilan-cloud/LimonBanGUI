@@ -142,6 +142,9 @@ public class Menus {
             case "Reach" -> Material.STICK;
             case "Aim" -> Material.SPECTRAL_ARROW;
             case "NoSwing" -> Material.LEATHER;
+            case "Timer" -> Material.CLOCK;
+            case "CPS" -> Material.REPEATER;
+            case "AntiKB" -> Material.PISTON;
             case "Grim" -> Material.ENDER_EYE;
             default -> Material.BOOK;
         };
